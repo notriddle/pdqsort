@@ -305,8 +305,10 @@ fn rec<T, F>(mut v: &mut [T], compare: &mut F, mut leftmost: bool, mut depth: us
         let len = v.len();
 
         if len <= max_insertion {
-            for i in (0..len-1).rev() {
-                insert_head(&mut v[i..], compare);
+            if len >= 2 {
+                for i in (0..len-1).rev() {
+                    insert_head(&mut v[i..], compare);
+                }
             }
             return;
         }
@@ -335,10 +337,8 @@ fn rec<T, F>(mut v: &mut [T], compare: &mut F, mut leftmost: bool, mut depth: us
                 sort3(a-1, a, a+1);
                 sort3(b-1, b, b+1);
                 sort3(c-1, c, c+1);
-                sort3(a, b, c);
-            } else {
-                sort3(a, b, c);
             }
+            sort3(a, b, c);
         }
 
         if !leftmost && unsafe { compare(&*v.as_ptr().offset(-1), &v[mid]) == Equal } {
@@ -356,14 +356,11 @@ fn rec<T, F>(mut v: &mut [T], compare: &mut F, mut leftmost: bool, mut depth: us
         let (left, right) = {v}.split_at_mut(new_mid - 1);
         let (_pivot, right) = {right}.split_at_mut(1);
 
-        if already && check(left, compare) {
-        } else {
-            rec(left, compare, leftmost, depth + 1);
-        }
-
-        if already && check(right, compare) {
+        if already && check(left, compare) && check(right, compare) {
             return;
         }
+
+        rec(left, compare, leftmost, depth + 1);
 
         v = right;
         leftmost = false;

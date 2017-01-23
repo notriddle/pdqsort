@@ -16,16 +16,14 @@ union NoDrop<T> {
     value: T
 }
 
-/// TODO: Fix comments in this function.
 /// Inserts `v[0]` into pre-sorted sequence `v[1..]` so that whole `v[..]` becomes sorted.
 ///
 /// This is the integral subroutine of insertion sort.
-fn insert_tail<T, F>(v: &mut [T], compare: &mut F) -> bool
+fn insert_head<T, F>(v: &mut [T], compare: &mut F) -> bool
     where F: FnMut(&T, &T) -> Ordering
 {
-    let len = v.len();
-    unsafe {
-        if len >= 2 && compare(&v[len-2], &v[len-1]) == Greater {
+    if v.len() >= 2 && compare(&v[0], &v[1]) == Greater {
+        unsafe {
             // There are three ways to implement insertion here:
             //
             // 1. Swap adjacent elements until the first one gets to its final destination.
@@ -43,7 +41,7 @@ fn insert_tail<T, F>(v: &mut [T], compare: &mut F) -> bool
             //    performance than with the 2nd method.
             //
             // All methods were benchmarked, and the 3rd showed best results. So we chose that one.
-            let mut tmp = NoDrop { value: ptr::read(&v[len-1]) };
+            let mut tmp = NoDrop { value: ptr::read(&v[0]) };
 
             // Intermediate state of the insertion process is always tracked by `hole`, which
             // serves two purposes:
@@ -57,22 +55,27 @@ fn insert_tail<T, F>(v: &mut [T], compare: &mut F) -> bool
             // initially held exactly once.
             let mut hole = InsertionHole {
                 src: &mut tmp.value,
-                dest: v.get_unchecked_mut(len - 2),
+                dest: &mut v[1],
             };
-            ptr::copy_nonoverlapping(&v[len-2], &mut v[len-1], 1);
+            ptr::copy_nonoverlapping(&v[1], &mut v[0], 1);
 
-            for i in (0..len-2).rev() {
-                if compare(v.get_unchecked(i), &tmp.value) != Greater {
+            for i in 2..v.len() {
+                if compare(&tmp.value, &v[i]) != Greater {
                     break;
                 }
-                ptr::copy_nonoverlapping(v.get_unchecked(i), v.get_unchecked_mut(i+1), 1);
-                hole.dest = v.get_unchecked_mut(i);
+                ptr::copy_nonoverlapping(&v[i], &mut v[i - 1], 1);
+                hole.dest = &mut v[i];
             }
             // `hole` gets dropped and thus copies `tmp` into the remaining hole in `v`.
-            return true;
-        } else {
-            return false;
         }
+        return true;
+    }
+    return false;
+
+    // Holds a value, but never drops it.
+    #[allow(unions_with_drop_fields)]
+    union NoDrop<T> {
+        value: T
     }
 
     // When dropped, copies from `src` into `dest`.
@@ -88,7 +91,7 @@ fn insert_tail<T, F>(v: &mut [T], compare: &mut F) -> bool
     }
 }
 
-fn check<T, F>(v: &mut [T], compare: &mut F) -> bool
+fn initial<T, F>(v: &mut [T], compare: &mut F) -> bool
     where F: FnMut(&T, &T) -> Ordering
 {
     if v.len() >= 2 {
@@ -110,15 +113,43 @@ fn check<T, F>(v: &mut [T], compare: &mut F) -> bool
     true
 }
 
-unsafe fn partition<T, F>(v: &mut [T], compare: &mut F) -> usize
+fn check<T, F>(v: &mut [T], compare: &mut F) -> bool
     where F: FnMut(&T, &T) -> Ordering
-    , T: std::fmt::Debug
+{
+    let mut cnt = 0;
+    let len = v.len();
+    if len >= 2 {
+        for i in (0..len-1).rev() {
+            if insert_head(&mut v[i..], compare) {
+                cnt += 1;
+                if cnt > 4 {
+                    return false;
+                }
+            }
+        }
+    }
+    true
+}
+
+unsafe fn partition<T, F>(v: &mut [T], compare: &mut F) -> (usize, bool)
+    where F: FnMut(&T, &T) -> Ordering
 {
     let len = v.len();
     let pivot = v.get_unchecked(0) as *const _;
 
     let mut a = 1;
     let mut b = len;
+    unsafe {
+        while a < b && compare(v.get_unchecked(a), &*pivot) == Less {
+            a += 1;
+        }
+        while a < b && compare(v.get_unchecked(b - 1), &*pivot) != Less {
+            b -= 1;
+        }
+    }
+    if a >= b {
+        return (a, true);
+    }
 
     const WIDTH: usize = 64;
 
@@ -225,7 +256,7 @@ unsafe fn partition<T, F>(v: &mut [T], compare: &mut F) -> usize
             len_a -= 1; 
             b -= 1;
         }
-        b
+        (b, false)
     } else {
         while pos_b < len_b {
             ptr::swap(v.get_unchecked_mut(a),
@@ -233,31 +264,64 @@ unsafe fn partition<T, F>(v: &mut [T], compare: &mut F) -> usize
             a += 1;
             len_b -= 1;
         }
+        (a, false)
+    }
+}
+
+fn partition_left<T, F>(v: &mut [T], compare: &mut F) -> usize
+    where F: FnMut(&T, &T) -> Ordering
+{
+    unsafe {
+        let len = v.len();
+        let pivot = v.get_unchecked(0) as *const _;
+
+        let mut a = 1;
+        let mut b = len;
+
+        while a < b {
+            while a < b && compare(v.get_unchecked(a), &*pivot) == Equal {
+                a += 1;
+            }
+            while a < b && compare(v.get_unchecked(b - 1), &*pivot) == Greater {
+                b -= 1;
+            }
+            if a < b {
+                b -= 1;
+                ptr::swap(v.get_unchecked_mut(a), v.get_unchecked_mut(b));
+                a += 1;
+            }
+        }
         a
     }
 }
 
-fn rec<'a, T, F>(mut v: &'a mut [T], compare: &mut F)
+fn rec<T, F>(mut v: &mut [T], compare: &mut F, mut leftmost: bool, mut depth: usize)
     where F: FnMut(&T, &T) -> Ordering
-    , T: std::fmt::Debug
 {
-    let max_insertion = if size_of::<T>() <= 16 { 64 } else { 32 };
+    let max_insertion = if size_of::<T>() <= 2 * size_of::<usize>() { 32 } else { 16 };
 
     loop {
+        // TODO: switch to heapsort
         let len = v.len();
 
         if len <= max_insertion {
-            for i in 2..len+1 {
-                insert_tail(&mut v[..i], compare);
+            for i in (0..len-1).rev() {
+                insert_head(&mut v[i..], compare);
             }
             return;
         }
 
-        let mid = len / 2;
+        let a = len / 4;
+        let b = len / 2;
+        let c = a + b;
+
+        let mid = b;
         {
-            let mut sort2 = |a,  b| {
-                if compare(&v[a], &v[b]) == Greater {
-                    v.swap(a, b);
+            let mut sort2 = |a, b| {
+                unsafe {
+                    if compare(v.get_unchecked(a), v.get_unchecked(b)) == Greater {
+                        ptr::swap(v.get_unchecked_mut(a), v.get_unchecked_mut(b));
+                    }
                 }
             };
 
@@ -268,53 +332,58 @@ fn rec<'a, T, F>(mut v: &'a mut [T], compare: &mut F)
             };
 
             if len >= 200 {
-                sort3(0, mid - 1, len - 3);
-                sort3(1, mid + 0, len - 2);
-                sort3(2, mid + 1, len - 1);
-                sort3(mid - 1, mid, mid + 1);
+                sort3(a-1, a, a+1);
+                sort3(b-1, b, b+1);
+                sort3(c-1, c, c+1);
+                sort3(a, b, c);
             } else {
-                sort3(0, mid, len - 1);
+                sort3(a, b, c);
             }
-            // TODO: partition left if median occurs twice
-            // TODO: partition left if very unbalanced for a small array
-            // TODO: scan every fourth pivot (see paper)
-            // TODO: median of sqrt for large arrays?
-            // TODO: some randomization?
+        }
+
+        if !leftmost && unsafe { compare(&*v.as_ptr().offset(-1), &v[mid]) == Equal } {
+            v.swap(0, mid);
+            let new_mid = partition_left(v, compare);
+            v = &mut {v}[new_mid..];
+            leftmost = false;
+            continue;
         }
 
         v.swap(0, mid);
-        let new_mid = unsafe { partition(v, compare) };
+        let (new_mid, already) = unsafe { partition(v, compare) };
         v.swap(0, new_mid - 1);
 
-        let (left, right) = {v}.split_at_mut(new_mid);
+        let (left, right) = {v}.split_at_mut(new_mid - 1);
+        let (_pivot, right) = {right}.split_at_mut(1);
 
-        if new_mid - 1 == mid && check(left, compare) {
-            // nothing
+        if already && check(left, compare) {
         } else {
-            rec(left, compare);
+            rec(left, compare, leftmost, depth + 1);
         }
 
-        if new_mid - 1 == mid && check(right, compare) {
+        if already && check(right, compare) {
             return;
         }
+
         v = right;
+        leftmost = false;
+        depth += 1;
     }
 }
 
 pub fn sort<T, F>(v: &mut [T], mut compare: F)
     where F: FnMut(&T, &T) -> Ordering
-    , T: std::fmt::Debug
 {
     // Sorting has no meaningful behavior on zero-sized types.
     if size_of::<T>() == 0 {
         return;
     }
 
-    if check(v, &mut compare) {
+    if initial(v, &mut compare) {
         return;
     }
 
-    rec(v, &mut compare);
+    rec(v, &mut compare, true, 0);
 }
 
 #[cfg(test)]

@@ -10,12 +10,6 @@ use std::mem::size_of;
 use std::mem;
 use std::ptr;
 
-// Holds a value, but never drops it.
-#[allow(unions_with_drop_fields)]
-union NoDrop<T> {
-    value: T
-}
-
 /// Inserts `v[0]` into pre-sorted sequence `v[1..]` so that whole `v[..]` becomes sorted.
 ///
 /// This is the integral subroutine of insertion sort.
@@ -131,27 +125,13 @@ fn check<T, F>(v: &mut [T], compare: &mut F) -> bool
     true
 }
 
-unsafe fn partition<T, F>(v: &mut [T], compare: &mut F) -> (usize, bool)
+fn partition_in_blocks<T, F>(v: &mut [T], pivot: &T, compare: &mut F) -> usize
     where F: FnMut(&T, &T) -> Ordering
 {
-    let len = v.len();
-    let pivot = v.get_unchecked(0) as *const _;
-
-    let mut a = 1;
-    let mut b = len;
-    unsafe {
-        while a < b && compare(v.get_unchecked(a), &*pivot) == Less {
-            a += 1;
-        }
-        while a < b && compare(v.get_unchecked(b - 1), &*pivot) != Less {
-            b -= 1;
-        }
-    }
-    if a >= b {
-        return (a, true);
-    }
-
     const WIDTH: usize = 64;
+
+    let mut a = 0;
+    let mut b = v.len();
 
     let mut elems_a = [0u8; WIDTH];
     let mut len_a = 0;
@@ -161,164 +141,167 @@ unsafe fn partition<T, F>(v: &mut [T], compare: &mut F) -> (usize, bool)
     let mut len_b = 0;
     let mut pos_b = 0;
 
-    while b - a > 2 * WIDTH {
+    let mut width_a = WIDTH;
+    let mut width_b = WIDTH;
+    let mut done = false;
+
+    while !done {
+        done = b - a <= 2 * WIDTH;
+        if done {
+            let rem = b - a - (pos_a < len_a || pos_b < len_b) as usize * WIDTH;
+            if pos_a < len_a {
+                width_a = WIDTH;
+                width_b = rem;
+            } else if pos_b < len_b {
+                width_a = rem;
+                width_b = WIDTH;
+            } else {
+                width_a = rem / 2;
+                width_b = rem - width_a;
+            }
+        }
+
         if pos_a == len_a {
             pos_a = 0;
             len_a = 0;
-            for i in 0..WIDTH {
-                let c0 = (compare(v.get_unchecked_mut(a + i), &*pivot) != Less) as usize;
-                *elems_a.get_unchecked_mut(len_a) = i as u8;
-                len_a += c0;
+            for i in 0..width_a {
+                unsafe {
+                    let c0 = (compare(v.get_unchecked(a + i), pivot) != Less) as usize;
+                    *elems_a.get_unchecked_mut(len_a) = i as u8;
+                    len_a += c0;
+                }
             }
         }
 
         if pos_b == len_b {
             pos_b = 0;
             len_b = 0;
-            for i in 0..WIDTH {
-                let c0 = (compare(v.get_unchecked_mut(b - i - 1), &*pivot) == Less) as usize;
-                *elems_b.get_unchecked_mut(len_b) = i as u8;
-                len_b += c0;
+            for i in 0..width_b {
+                unsafe {
+                    let c0 = (compare(v.get_unchecked(b - i - 1), pivot) == Less) as usize;
+                    *elems_b.get_unchecked_mut(len_b) = i as u8;
+                    len_b += c0;
+                }
             }
         }
 
-        let cnt = cmp::min(len_a - pos_a, len_b - pos_b);
-        for _ in 0..cnt {
-            ptr::swap(v.get_unchecked_mut(a + *elems_a.get_unchecked_mut(pos_a) as usize),
-                      v.get_unchecked_mut(b - *elems_b.get_unchecked_mut(pos_b) as usize - 1));
+        for _ in 0..cmp::min(len_a - pos_a, len_b - pos_b) {
+            unsafe {
+                ptr::swap(v.get_unchecked_mut(a + *elems_a.get_unchecked(pos_a) as usize),
+                v.get_unchecked_mut(b - *elems_b.get_unchecked(pos_b) as usize - 1));
+            }
             pos_a += 1;
             pos_b += 1;
         }
 
         if pos_a == len_a {
-            a += WIDTH;
+            a += width_a;
         }
 
         if pos_b == len_b {
-            b -= WIDTH;
+            b -= width_b;
         }
-    }
-
-    let rem = b - a - (pos_a < len_a || pos_b < len_b) as usize * WIDTH;
-    let width_a;
-    let width_b;
-    if pos_a < len_a {
-        width_a = WIDTH;
-        width_b = rem;
-    } else if pos_b < len_b {
-        width_a = rem;
-        width_b = WIDTH;
-    } else {
-        width_a = rem / 2;
-        width_b = rem - width_a;
-    }
-
-    if pos_a == len_a {
-        pos_a = 0;
-        len_a = 0;
-        for i in 0..width_a {
-            let c0 = (compare(v.get_unchecked_mut(a + i), &*pivot) != Less) as usize;
-            *elems_a.get_unchecked_mut(len_a) = i as u8;
-            len_a += c0;
-        }
-    }
-
-    if pos_b == len_b {
-        pos_b = 0;
-        len_b = 0;
-        for i in 0..width_b {
-            let c0 = (compare(v.get_unchecked_mut(b - i - 1), &*pivot) == Less) as usize;
-            *elems_b.get_unchecked_mut(len_b) = i as u8;
-            len_b += c0;
-        }
-    }
-
-    let cnt = cmp::min(len_a - pos_a, len_b - pos_b);
-    for _ in 0..cnt {
-        ptr::swap(v.get_unchecked_mut(a + *elems_a.get_unchecked_mut(pos_a) as usize),
-                  v.get_unchecked_mut(b - *elems_b.get_unchecked_mut(pos_b) as usize - 1));
-        pos_a += 1;
-        pos_b += 1;
-    }
-
-    if pos_a == len_a {
-        a += width_a;
-    }
-
-    if pos_b == len_b {
-        b -= width_b;
     }
 
     if pos_a < len_a {
         while pos_a < len_a {
-            ptr::swap(v.get_unchecked_mut(a + *elems_a.get_unchecked_mut(len_a - 1) as usize),
-                      v.get_unchecked_mut(b - 1));
+            unsafe {
+                ptr::swap(v.get_unchecked_mut(a + *elems_a.get_unchecked(len_a - 1) as usize),
+                v.get_unchecked_mut(b - 1));
+            }
             len_a -= 1; 
             b -= 1;
         }
-        (b, false)
+        b
     } else {
         while pos_b < len_b {
-            ptr::swap(v.get_unchecked_mut(a),
-                      v.get_unchecked_mut(b - *elems_b.get_unchecked_mut(len_b - 1) as usize - 1));
+            unsafe {
+                ptr::swap(v.get_unchecked_mut(a),
+                v.get_unchecked_mut(b - *elems_b.get_unchecked(len_b - 1) as usize - 1));
+            }
             a += 1;
             len_b -= 1;
-        }
-        (a, false)
-    }
-}
-
-fn partition_left<T, F>(v: &mut [T], compare: &mut F) -> usize
-    where F: FnMut(&T, &T) -> Ordering
-{
-    unsafe {
-        let len = v.len();
-        let pivot = v.get_unchecked(0) as *const _;
-
-        let mut a = 1;
-        let mut b = len;
-
-        while a < b {
-            while a < b && compare(v.get_unchecked(a), &*pivot) == Equal {
-                a += 1;
-            }
-            while a < b && compare(v.get_unchecked(b - 1), &*pivot) == Greater {
-                b -= 1;
-            }
-            if a < b {
-                b -= 1;
-                ptr::swap(v.get_unchecked_mut(a), v.get_unchecked_mut(b));
-                a += 1;
-            }
         }
         a
     }
 }
 
-fn rec<T, F>(mut v: &mut [T], compare: &mut F, mut leftmost: bool, mut depth: usize)
+fn partition<T, F>(v: &mut [T], mid: usize, compare: &mut F) -> (usize, bool)
+    where F: FnMut(&T, &T) -> Ordering
+{
+    v.swap(0, mid);
+    let (mid, already) = {
+        let (pivot, v) = v.split_at_mut(1);
+        let pivot = &pivot[0];
+        let len = v.len();
+
+        let mut a = 0;
+        let mut b = len;
+        while a < b && compare(&v[a], &*pivot) == Less {
+            a += 1;
+        }
+        while a < b && compare(&v[b - 1], &*pivot) != Less {
+            b -= 1;
+        }
+        let already = a >= b;
+
+        if a >= b {
+            (a, true)
+        } else {
+            (a + partition_in_blocks(&mut v[a..b], pivot, compare), false)
+        }
+    };
+    v.swap(0, mid);
+    (mid, already)
+}
+
+fn partition_equal<T, F>(v: &mut [T], mid: usize, compare: &mut F) -> usize
+    where F: FnMut(&T, &T) -> Ordering
+{
+    v.swap(0, mid);
+    let (pivot, v) = v.split_at_mut(1);
+    let pivot = &pivot[0];
+    let len = v.len();
+
+    let mut a = 0;
+    let mut b = len;
+
+    while a < b {
+        while a < b && compare(&v[a], &*pivot) == Equal {
+            a += 1;
+        }
+        while a < b && compare(&v[b - 1], &*pivot) == Greater {
+            b -= 1;
+        }
+        if a < b {
+            b -= 1;
+            v.swap(a, b);
+            a += 1;
+        }
+    }
+    a + 1
+}
+
+fn quicksort<T, F>(v: &mut [T], compare: &mut F, pred: Option<&T>, depth: usize)
     where F: FnMut(&T, &T) -> Ordering
 {
     let max_insertion = if size_of::<T>() <= 2 * size_of::<usize>() { 32 } else { 16 };
 
-    loop {
-        // TODO: switch to heapsort
-        let len = v.len();
+    // TODO: switch to heapsort
+    let len = v.len();
 
-        if len <= max_insertion {
-            if len >= 2 {
-                for i in (0..len-1).rev() {
-                    insert_head(&mut v[i..], compare);
-                }
+    if len <= max_insertion {
+        if len >= 2 {
+            for i in (0..len-1).rev() {
+                insert_head(&mut v[i..], compare);
             }
-            return;
         }
+        return;
+    }
 
-        let a = len / 4;
-        let b = len / 2;
-        let c = a + b;
-
-        let mid = b;
-        {
+    // TODO: factor out
+    let mid = {
+        let mut sort3 = |a, b, c| {
             let mut sort2 = |a, b| {
                 unsafe {
                     if compare(v.get_unchecked(a), v.get_unchecked(b)) == Greater {
@@ -326,46 +309,44 @@ fn rec<T, F>(mut v: &mut [T], compare: &mut F, mut leftmost: bool, mut depth: us
                     }
                 }
             };
+            sort2(a, b);
+            sort2(b, c);
+            sort2(a, b);
+        };
 
-            let mut sort3 = |a, b, c| {
-                sort2(a, b);
-                sort2(b, c);
-                sort2(a, b);
-            };
-
-            if len >= 200 {
-                sort3(a-1, a, a+1);
-                sort3(b-1, b, b+1);
-                sort3(c-1, c, c+1);
-            }
-            sort3(a, b, c);
+        let a = len / 4;
+        let b = len / 2;
+        let c = a + b;
+        if len >= 200 {
+            sort3(a - 1, a, c + 1);
+            sort3(b - 1, b, b + 1);
+            sort3(c - 1, c, c + 1);
         }
+        sort3(a, b, c);
+        b
+    };
 
-        if !leftmost && unsafe { compare(&*v.as_ptr().offset(-1), &v[mid]) == Equal } {
-            v.swap(0, mid);
-            let new_mid = partition_left(v, compare);
-            v = &mut {v}[new_mid..];
-            leftmost = false;
-            continue;
-        }
+    if let Some(p) = pred {
+        if compare(p, &v[mid]) == Equal {
+            let new_mid = partition_equal(v, mid, compare);
+            let (left, right) = v.split_at_mut(new_mid - 1);
 
-        v.swap(0, mid);
-        let (new_mid, already) = unsafe { partition(v, compare) };
-        v.swap(0, new_mid - 1);
-
-        let (left, right) = {v}.split_at_mut(new_mid - 1);
-        let (_pivot, right) = {right}.split_at_mut(1);
-
-        if already && check(left, compare) && check(right, compare) {
+            quicksort(right, compare, Some(&left[left.len() - 1]), depth + 1);
             return;
         }
-
-        rec(left, compare, leftmost, depth + 1);
-
-        v = right;
-        leftmost = false;
-        depth += 1;
     }
+
+    let (mid, already) = partition(v, mid, compare);
+    let (left, right) = v.split_at_mut(mid);
+    let (pivot, right) = right.split_at_mut(1);
+    let pivot = &pivot[0];
+
+    if already && check(left, compare) && check(right, compare) {
+        return;
+    }
+
+    quicksort(left, compare, pred, depth + 1);
+    quicksort(right, compare, Some(pivot), depth + 1);
 }
 
 pub fn sort<T, F>(v: &mut [T], mut compare: F)
@@ -380,7 +361,7 @@ pub fn sort<T, F>(v: &mut [T], mut compare: F)
         return;
     }
 
-    rec(v, &mut compare, true, 0);
+    quicksort(v, &mut compare, None, 0);
 }
 
 #[cfg(test)]

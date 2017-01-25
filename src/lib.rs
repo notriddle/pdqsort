@@ -85,7 +85,7 @@ fn insert_head<T, F>(v: &mut [T], compare: &mut F) -> bool
     }
 }
 
-fn initial<T, F>(v: &mut [T], compare: &mut F) -> bool
+fn is_presorted<T, F>(v: &mut [T], compare: &mut F) -> bool
     where F: FnMut(&T, &T) -> Ordering
 {
     if v.len() >= 2 {
@@ -107,7 +107,7 @@ fn initial<T, F>(v: &mut [T], compare: &mut F) -> bool
     true
 }
 
-fn check<T, F>(v: &mut [T], compare: &mut F) -> bool
+fn partial_insertion_sort<T, F>(v: &mut [T], compare: &mut F) -> bool
     where F: FnMut(&T, &T) -> Ordering
 {
     let mut cnt = 0;
@@ -132,29 +132,26 @@ fn partition_in_blocks<T, F>(v: &mut [T], pivot: &T, compare: &mut F) -> usize
 
     let mut a = 0;
     let mut b = v.len();
+    let mut is_done = false;
 
     let mut elems_a = [0u8; WIDTH];
+    let mut width_a = WIDTH;
     let mut len_a = 0;
     let mut pos_a = 0;
 
     let mut elems_b = [0u8; WIDTH];
+    let mut width_b = WIDTH;
     let mut len_b = 0;
     let mut pos_b = 0;
-
-    let mut width_a = WIDTH;
-    let mut width_b = WIDTH;
-    let mut is_done = false;
 
     while !is_done {
         is_done = b - a <= 2 * WIDTH;
         if is_done {
             let rem = b - a - (pos_a < len_a || pos_b < len_b) as usize * WIDTH;
             if pos_a < len_a {
-                width_a = WIDTH;
                 width_b = rem;
             } else if pos_b < len_b {
                 width_a = rem;
-                width_b = WIDTH;
             } else {
                 width_a = rem / 2;
                 width_b = rem - width_a;
@@ -229,8 +226,7 @@ fn partition_in_blocks<T, F>(v: &mut [T], pivot: &T, compare: &mut F) -> usize
 fn partition<T, F>(v: &mut [T], mid: usize, compare: &mut F) -> (usize, bool)
     where F: FnMut(&T, &T) -> Ordering
 {
-    v.swap(0, mid);
-    let (mid, already) = {
+    let (mid, was_partitioned) = {
         let (pivot, v) = v.split_at_mut(1);
         let pivot = &pivot[0];
         let len = v.len();
@@ -243,16 +239,11 @@ fn partition<T, F>(v: &mut [T], mid: usize, compare: &mut F) -> (usize, bool)
         while a < b && compare(&v[b - 1], &*pivot) != Less {
             b -= 1;
         }
-        let already = a >= b;
 
-        if a >= b {
-            (a, true)
-        } else {
-            (a + partition_in_blocks(&mut v[a..b], pivot, compare), false)
-        }
+        (a + partition_in_blocks(&mut v[a..b], pivot, compare), a >= b)
     };
     v.swap(0, mid);
-    (mid, already)
+    (mid, was_partitioned)
 }
 
 fn partition_equal<T, F>(v: &mut [T], mid: usize, compare: &mut F) -> usize
@@ -323,69 +314,99 @@ fn insertion_sort<T, F>(v: &mut [T], compare: &mut F)
     }
 }
 
-fn quicksort<T, F>(v: &mut [T], compare: &mut F, pred: Option<&T>, depth: usize)
+fn break_patterns<T>(v: &mut [T]) {
+    let len = v.len();
+
+    if len >= 4 {
+        v.swap(0, len / 2);
+        v.swap(len - 1, len - len / 2);
+
+        if len >= 200 {
+            v.swap(1, len / 2 + 1);
+            v.swap(2, len / 2 + 2);
+            v.swap(len - 2, len - len / 2 - 1);
+            v.swap(len - 3, len - len / 2 - 2);
+        }
+    }
+}
+
+fn choose_pivot<T, F>(v: &mut [T], compare: &mut F) -> usize
     where F: FnMut(&T, &T) -> Ordering
 {
-    let max_insertion = if size_of::<T>() <= 2 * size_of::<usize>() { 32 } else { 16 };
+    let len = v.len();
+    let a = len / 4;
+    let b = len / 2;
+    let c = a + b;
 
-    if v.len() <= max_insertion {
-        insertion_sort(v, compare);
-        return;
-    }
+    let mut sort2 = |a, b| unsafe {
+        if compare(v.get_unchecked(a), v.get_unchecked(b)) == Greater {
+            ptr::swap(v.get_unchecked_mut(a), v.get_unchecked_mut(b));
+        }
+    };
 
-    if depth == 64 {
-        heapsort(v, compare);
-        return;
-    }
+    let mut sort3 = |a, b, c| {
+        sort2(a, b);
+        sort2(b, c);
+        sort2(a, b);
+    };
 
-    let mid = {
-        let len = v.len();
-        let a = len / 4;
-        let b = len / 2;
-        let c = a + b;
-
-        let mut sort2 = |a, b| unsafe {
-            if compare(v.get_unchecked(a), v.get_unchecked(b)) == Greater {
-                ptr::swap(v.get_unchecked_mut(a), v.get_unchecked_mut(b));
-            }
-        };
-
-        let mut sort3 = |a, b, c| {
-            sort2(a, b);
-            sort2(b, c);
-            sort2(a, b);
-        };
-
+    if len >= 4 {
         if len >= 200 {
             sort3(a - 1, a, c + 1);
             sort3(b - 1, b, b + 1);
             sort3(c - 1, c, c + 1);
         }
         sort3(a, b, c);
-        b
-    };
+    }
+    b
+}
+
+fn quicksort<T, F>(v: &mut [T], compare: &mut F, pred: Option<&T>, mut limit: usize)
+    where F: FnMut(&T, &T) -> Ordering
+{
+    let max_insertion = if size_of::<T>() <= 2 * size_of::<usize>() { 32 } else { 16 };
+    let len = v.len();
+
+    if len <= max_insertion {
+        insertion_sort(v, compare);
+        return;
+    }
+
+    if limit == 0 {
+        heapsort(v, compare);
+        return;
+    }
+
+    let mid = choose_pivot(v, compare);
 
     if let Some(p) = pred {
         if compare(p, &v[mid]) == Equal {
-            let new_mid = partition_equal(v, mid, compare);
-            let (left, right) = v.split_at_mut(new_mid - 1);
+            let mid = partition_equal(v, mid, compare);
+            let (left, right) = v.split_at_mut(mid);
 
-            quicksort(right, compare, Some(&left[left.len() - 1]), depth + 1);
+            quicksort(right, compare, Some(&left[left.len() - 1]), limit);
             return;
         }
     }
 
-    let (mid, already) = partition(v, mid, compare);
+    let (mid, was_partitioned) = partition(v, mid, compare);
     let (left, right) = v.split_at_mut(mid);
     let (pivot, right) = right.split_at_mut(1);
     let pivot = &pivot[0];
 
-    if already && check(left, compare) && check(right, compare) {
-        return;
+    if left.len() < len / 8 || right.len() < len / 8 {
+        limit -= 1;
+        break_patterns(left);
+        break_patterns(right);
+    } else {
+        if was_partitioned && partial_insertion_sort(left, compare)
+                           && partial_insertion_sort(right, compare) {
+            return;
+        }
     }
 
-    quicksort(left, compare, pred, depth + 1);
-    quicksort(right, compare, Some(pivot), depth + 1);
+    quicksort(left, compare, pred, limit);
+    quicksort(right, compare, Some(pivot), limit);
 }
 
 pub fn sort<T, F>(v: &mut [T], mut compare: F)
@@ -396,11 +417,14 @@ pub fn sort<T, F>(v: &mut [T], mut compare: F)
         return;
     }
 
-    if initial(v, &mut compare) {
+    if is_presorted(v, &mut compare) {
         return;
     }
 
-    quicksort(v, &mut compare, None, 0);
+    let len = v.len() as u64;
+    let limit = 64 - len.leading_zeros() as usize + 1;
+
+    quicksort(v, &mut compare, None, limit);
 }
 
 #[cfg(test)]
@@ -412,6 +436,7 @@ mod tests {
     use std::mem;
 
     // TODO: more correctness tests
+    // TODO: a test with totally random comparison function
 
     #[test]
     fn test() {

@@ -226,6 +226,7 @@ fn partition_in_blocks<T, F>(v: &mut [T], pivot: &T, compare: &mut F) -> usize
 fn partition<T, F>(v: &mut [T], mid: usize, compare: &mut F) -> (usize, bool)
     where F: FnMut(&T, &T) -> Ordering
 {
+    v.swap(0, mid);
     let (mid, was_partitioned) = {
         let (pivot, v) = v.split_at_mut(1);
         let pivot = &pivot[0];

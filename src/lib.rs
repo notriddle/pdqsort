@@ -143,11 +143,11 @@ fn partition_in_blocks<T, F>(v: &mut [T], pivot: &T, compare: &mut F) -> usize
 
     let mut width_a = WIDTH;
     let mut width_b = WIDTH;
-    let mut done = false;
+    let mut is_done = false;
 
-    while !done {
-        done = b - a <= 2 * WIDTH;
-        if done {
+    while !is_done {
+        is_done = b - a <= 2 * WIDTH;
+        if is_done {
             let rem = b - a - (pos_a < len_a || pos_b < len_b) as usize * WIDTH;
             if pos_a < len_a {
                 width_a = WIDTH;
@@ -282,41 +282,80 @@ fn partition_equal<T, F>(v: &mut [T], mid: usize, compare: &mut F) -> usize
     a + 1
 }
 
+fn heapsort<T, F>(v: &mut [T], compare: &mut F)
+    where F: FnMut(&T, &T) -> Ordering
+{
+    let mut sift_down = |v: &mut [T], mut x| {
+        loop {
+            let l = 2 * x + 1;
+            let r = 2 * x + 2;
+            let child = if r < v.len() && compare(&v[l], &v[r]) == Less {
+                r
+            } else {
+                l
+            };
+
+            if l >= v.len() || compare(&v[x], &v[child]) != Less {
+                break;
+            }
+            v.swap(x, child);
+            x = child;
+        }
+    };
+
+    for i in (0 .. v.len() / 2).rev() {
+        sift_down(v, i);
+    }
+
+    for i in (1 .. v.len()).rev() {
+        v.swap(0, i);
+        sift_down(&mut v[..i], 0);
+    }
+}
+
+fn insertion_sort<T, F>(v: &mut [T], compare: &mut F)
+    where F: FnMut(&T, &T) -> Ordering
+{
+    if v.len() >= 2 {
+        for i in (0 .. v.len() - 1).rev() {
+            insert_head(&mut v[i..], compare);
+        }
+    }
+}
+
 fn quicksort<T, F>(v: &mut [T], compare: &mut F, pred: Option<&T>, depth: usize)
     where F: FnMut(&T, &T) -> Ordering
 {
     let max_insertion = if size_of::<T>() <= 2 * size_of::<usize>() { 32 } else { 16 };
 
-    // TODO: switch to heapsort
-    let len = v.len();
-
-    if len <= max_insertion {
-        if len >= 2 {
-            for i in (0..len-1).rev() {
-                insert_head(&mut v[i..], compare);
-            }
-        }
+    if v.len() <= max_insertion {
+        insertion_sort(v, compare);
         return;
     }
 
-    // TODO: factor out
+    if depth == 64 {
+        heapsort(v, compare);
+        return;
+    }
+
     let mid = {
+        let len = v.len();
+        let a = len / 4;
+        let b = len / 2;
+        let c = a + b;
+
+        let mut sort2 = |a, b| unsafe {
+            if compare(v.get_unchecked(a), v.get_unchecked(b)) == Greater {
+                ptr::swap(v.get_unchecked_mut(a), v.get_unchecked_mut(b));
+            }
+        };
+
         let mut sort3 = |a, b, c| {
-            let mut sort2 = |a, b| {
-                unsafe {
-                    if compare(v.get_unchecked(a), v.get_unchecked(b)) == Greater {
-                        ptr::swap(v.get_unchecked_mut(a), v.get_unchecked_mut(b));
-                    }
-                }
-            };
             sort2(a, b);
             sort2(b, c);
             sort2(a, b);
         };
 
-        let a = len / 4;
-        let b = len / 2;
-        let c = a + b;
         if len >= 200 {
             sort3(a - 1, a, c + 1);
             sort3(b - 1, b, b + 1);

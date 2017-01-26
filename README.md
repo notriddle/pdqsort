@@ -52,26 +52,26 @@ Sorting 10 million random numbers of type `u64`:
 
 The benchmarks that follow are [used in Rust][bench] for testing the performance of slice::sort.
 
-| Benchmark               | pdqsort           | slice::sort       | [quickersort][qs] | [dmsort][ds]      | [rdxsort][rs] |
-|-------------------------|------------------:|------------------:|------------------:|------------------:|--------------:|
-| large_ascending         |      **7,174 ns** |          9,067 ns |        12,049 ns  |         21,918 ns |    358,490 ns |
-| large_big_ascending     |    **369,921 ns** |        370,352 ns |       374,000 ns  |        412,064 ns | 49,596,895 ns |
-| large_big_descending    |    **426,717 ns** |        441,120 ns |       570,564 ns  |        814,455 ns | 49,675,077 ns |
-| large_big_random        |      2,001,114 ns |      2,141,195 ns | **1,970,706 ns**  |      2,308,335 ns | 43,578,405 ns |
-| large_descending        |     **10,873 ns** |         13,717 ns |        46,116 ns  |        143,599 ns |    347,355 ns |
-| large_mostly_ascending  |         83,789 ns |        239,114 ns |       129,134 ns  |     **44,522 ns** |    352,691 ns |
-| large_mostly_descending |        151,457 ns |        268,573 ns |   **134,891 ns**  |        282,361 ns |    349,217 ns |
-| large_random            |    **359,871 ns** |        508,701 ns |       533,575 ns  |        543,719 ns |    399,124 ns |
-| large_random_expensive  |     63,657,586 ns | **23,689,555 ns** |               -   |     31,210,721 ns |            -  |
-| medium_ascending        |         **94 ns** |            145 ns |           148 ns  |            259 ns |      4,509 ns |
-| medium_descending       |        **122 ns** |            188 ns |           490 ns  |          1,344 ns |      4,947 ns |
-| medium_random           |      **3,053 ns** |          3,297 ns |         3,252 ns  |          3,722 ns |      6,466 ns |
-| small_ascending         |         **25 ns** |             32 ns |        **25 ns**  |             47 ns |      1,597 ns |
-| small_big_ascending     |         **82 ns** |             95 ns |            89 ns  |            136 ns |     35,749 ns |
-| small_big_descending    |        **143 ns** |            246 ns |           420 ns  |            517 ns |     35,807 ns |
-| small_big_random        |            508 ns |        **492 ns** |           582 ns  |            671 ns |     46,393 ns |
-| small_descending        |         **28 ns** |             55 ns |            51 ns  |            232 ns |      1,595 ns |
-| small_random            |            355 ns |            346 ns |       **333 ns**  |            484 ns |      3,841 ns |
+| Benchmark               | pdqsort       | slice::sort   | [quickersort][qs] | [dmsort][ds] | [rdxsort][rs] |
+|-------------------------|--------------:|--------------:|------------------:|-------------:|--------------:|
+| large_ascending         |      **7 us** |          9 us |            12 us  |        22 us |        358 us |
+| large_descending        |     **11 us** |         14 us |            46 us  |       144 us |        347 us |
+| large_random            |    **359 us** |        509 us |           534 us  |       544 us |        399 us |
+| large_random_expensive  |         65 ms |     **24 ms** |               -   |        31 ms |            -  |
+| large_mostly_ascending  |         84 us |        239 us |           129 us  |    **45 us** |        353 us |
+| large_mostly_descending |        151 us |        267 us |       **135 us**  |       282 us |        349 us |
+| large_big_ascending     |    **370 us** |    **370 us** |           374 us  |       412 us |     49,597 us |
+| large_big_descending    |    **427 us** |        441 us |           571 us  |       814 us |     49,675 us |
+| large_big_random        |      2,001 us |      2,141 us |     **1,971 us**  |     2,308 us |     43,578 us |
+| medium_ascending        |     **94 ns** |        145 ns |           148 ns  |       259 ns |      4,509 ns |
+| medium_descending       |    **122 ns** |        188 ns |           490 ns  |     1,344 ns |      4,947 ns |
+| medium_random           |  **3,053 ns** |      3,297 ns |         3,252 ns  |     3,722 ns |      6,466 ns |
+| small_ascending         |     **25 ns** |         32 ns |        **25 ns**  |        47 ns |      1,597 ns |
+| small_descending        |     **28 ns** |         55 ns |            51 ns  |       232 ns |      1,595 ns |
+| small_random            |        355 ns |        346 ns |       **333 ns**  |       484 ns |      3,841 ns |
+| small_big_ascending     |     **82 ns** |         95 ns |            89 ns  |       136 ns |     35,749 ns |
+| small_big_descending    |    **143 ns** |        246 ns |           420 ns  |       517 ns |     35,807 ns |
+| small_big_random        |        508 ns |    **492 ns** |           582 ns  |       671 ns |     46,393 ns |
 
 [qs]: https://github.com/notriddle/quickersort
 [ds]: https://github.com/emilk/drop-merge-sort

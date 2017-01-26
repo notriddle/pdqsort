@@ -139,8 +139,8 @@ fn insertion_sort<T, F>(v: &mut [T], compare: &mut F)
     }
 }
 
-/// Attempts to sort `v` using insertion sort in just a handful of steps. Returns `true` if the
-/// slice was successfully sorted.
+/// Attempts to sort `v` using insertion sort in just a handful of steps, i.e. in `O(n)` time.
+/// Returns `true` if the slice was successfully sorted.
 fn partial_insertion_sort<T, F>(v: &mut [T], compare: &mut F) -> bool
     where F: FnMut(&T, &T) -> Ordering
 {
@@ -166,7 +166,8 @@ fn partial_insertion_sort<T, F>(v: &mut [T], compare: &mut F) -> bool
 fn heapsort<T, F>(v: &mut [T], compare: &mut F)
     where F: FnMut(&T, &T) -> Ordering
 {
-    // The heap is a max-heap. In other words, children are never greater than their parents.
+    // The heap is a max-heap.
+    // In other words, children are never greater than their parents.
     let mut sift_down = |v: &mut [T], mut x| {
         loop {
             let l = 2 * x + 1;
@@ -288,6 +289,7 @@ fn partition_in_blocks<T, F>(v: &mut [T], pivot: &T, compare: &mut F) -> usize
             len_l = 0;
             for i in 0..block_l {
                 unsafe {
+                    // Branchless comparison.
                     let c0 = (compare(v.get_unchecked(l + i), pivot) != Less) as usize;
                     *offsets_l.get_unchecked_mut(len_l) = i as u8;
                     len_l += c0;
@@ -301,6 +303,7 @@ fn partition_in_blocks<T, F>(v: &mut [T], pivot: &T, compare: &mut F) -> usize
             len_r = 0;
             for i in 0..block_r {
                 unsafe {
+                    // Branchless comparison.
                     let c0 = (compare(v.get_unchecked(r - i - 1), pivot) == Less) as usize;
                     *offsets_r.get_unchecked_mut(len_r) = i as u8;
                     len_r += c0;
@@ -387,8 +390,8 @@ fn partition<T, F>(v: &mut [T], pivot: usize, compare: &mut F) -> (usize, bool)
     (mid, was_partitioned)
 }
 
-/// Partitions `v` into elements equal than `v[pivot]`, followed by elements greater than
-/// `v[pivot]`. It is assumed that `v` does not contain elements smaller than `v[pivot]`.
+/// Partitions `v` into elements equal to `v[pivot]` followed by elements greater than `v[pivot]`.
+/// It is assumed that `v` does not contain elements smaller than `v[pivot]`.
 fn partition_equal<T, F>(v: &mut [T], mid: usize, compare: &mut F) -> usize
     where F: FnMut(&T, &T) -> Ordering
 {
@@ -419,7 +422,7 @@ fn partition_equal<T, F>(v: &mut [T], mid: usize, compare: &mut F) -> usize
     l + 1
 }
 
-/// Scatters some elements in `v` around in attempt to break patterns that might cause imbalanced
+/// Scatters some elements around in an attempt to break patterns that might cause imbalanced
 /// partitions in quicksort.
 fn break_patterns<T>(v: &mut [T]) {
     let len = v.len();
@@ -437,7 +440,7 @@ fn break_patterns<T>(v: &mut [T]) {
     }
 }
 
-/// Chooses a pivot in `v` and returns it's index.
+/// Chooses a pivot in `v` and returns it's index. Some elements might be shuffled while doing so.
 fn choose_pivot<T, F>(v: &mut [T], compare: &mut F) -> usize
     where F: FnMut(&T, &T) -> Ordering
 {
@@ -519,7 +522,7 @@ fn quicksort<T, F>(v: &mut [T], compare: &mut F, pred: Option<&T>, mut limit: us
     let pivot = &pivot[0];
 
     if left.len() < len / 8 || right.len() < len / 8 {
-        // The partitioning is imbalanced. Try breaking patterns in the slice to prevent that in
+        // This partitioning is imbalanced. Try breaking patterns in the slice to prevent that in
         // the future.
         limit -= 1;
         break_patterns(left);
@@ -626,9 +629,8 @@ mod tests {
     extern crate rand;
 
     use self::rand::{Rng, thread_rng};
-    use std::cmp::Ordering::{Greater, Less};
-    use std::prelude::*;
-    use super::*;
+    use self::std::cmp::Ordering::{Greater, Less};
+    use self::std::prelude::v1::*;
 
     #[test]
     fn test_sort_zero_sized_type() {
@@ -638,13 +640,17 @@ mod tests {
     }
 
     #[test]
-    fn test_sort() {
-        for len in (2..25).chain(500..510) {
-            for _ in 0..100 {
-                let mut v: Vec<_> = thread_rng().gen_iter::<i32>().take(len).collect();
+    fn test_pdqsort() {
+        let mut rng = thread_rng();
+        for n in 0..16 {
+            for l in 0..16 {
+                let mut v = rng.gen_iter::<u64>()
+                    .map(|x| x % (1 << l))
+                    .take((1 << n))
+                    .collect::<Vec<_>>();
                 let mut v1 = v.clone();
 
-                sort(&mut v);
+                super::sort(&mut v);
                 assert!(v.windows(2).all(|w| w[0] <= w[1]));
 
                 v1.sort_by(|a, b| a.cmp(b));
@@ -656,30 +662,35 @@ mod tests {
         }
 
         let mut v = [0xDEADBEEFu64];
-        sort(&mut v);
+        super::sort(&mut v);
         assert!(v == [0xDEADBEEF]);
     }
 
     #[test]
-    fn stress_test() {
+    fn test_heapsort() {
         let mut rng = thread_rng();
         for n in 0..16 {
             for l in 0..16 {
-                let mut a = rng.gen_iter::<u64>()
+                let mut v = rng.gen_iter::<u64>()
                     .map(|x| x % (1 << l))
                     .take((1 << n))
                     .collect::<Vec<_>>();
-                let mut b = a.clone();
-                let mut c = a.clone();
+                let mut v1 = v.clone();
 
-                a.sort();
-                sort(&mut b);
-                heapsort(&mut c, |a, b| a.cmp(b));
+                super::heapsort(&mut v, &mut |a, b| a.cmp(b));
+                assert!(v.windows(2).all(|w| w[0] <= w[1]));
 
-                assert_eq!(a, b);
-                assert_eq!(a, c);
+                v1.sort_by(|a, b| a.cmp(b));
+                assert!(v1.windows(2).all(|w| w[0] <= w[1]));
+
+                v1.sort_by(|a, b| b.cmp(a));
+                assert!(v1.windows(2).all(|w| w[0] >= w[1]));
             }
         }
+
+        let mut v = [0xDEADBEEFu64];
+        super::heapsort(&mut v, &mut |a, b| a.cmp(b));
+        assert!(v == [0xDEADBEEF]);
     }
 
     #[test]
@@ -692,7 +703,7 @@ mod tests {
             .collect::<Vec<_>>();
 
         // Even though comparison is non-sensical, sorting must not panic.
-        sort_by(&mut v, |_, _| {
+        super::sort_by(&mut v, |_, _| {
             if rng.gen::<bool>() {
                 Less
             } else {

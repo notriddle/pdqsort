@@ -1,7 +1,8 @@
 //! Pattern-defeating quicksort.
 //!
-//! This sort is significantly faster than the standard sort in Rust. On random arrays it's around
-//! 40% faster. The key drawback is that it is an unstable sort (i.e. may reorder equal elements).
+//! This sort is significantly faster than the standard sort in Rust. For example, it sorts random
+//! arrays of integers approximately 40% faster. The key drawback is that it is an unstable sort
+//! (i.e. may reorder equal elements).
 //!
 //! The algorithm was designed by Orson Peters and first published at:
 //! https://github.com/orlp/pdqsort
@@ -11,7 +12,7 @@
 //! heapsort, while achieving linear time on inputs with certain patterns. pdqsort is an extension
 //! and improvement of David Musser's introsort."
 //!
-//! Characteristics:
+//! # Properties
 //!
 //! - Best-case running time is `O(n)`.
 //! - Worst-case running time is `O(n log n)`.
@@ -29,15 +30,9 @@
 //! assert!(v == [-5, -3, 1, 2, 4]);
 //! ```
 
-#![feature(test)]
-#![feature(untagged_unions)]
-
-extern crate test;
-extern crate rand;
-
 use std::cmp::Ordering::{self, Equal, Greater, Less};
 use std::cmp;
-use std::mem::size_of;
+use std::mem;
 use std::ptr;
 
 /// Inserts `v[0]` into pre-sorted sequence `v[1..]` so that whole `v[..]` becomes sorted, and
@@ -48,9 +43,14 @@ fn insert_head<T, F>(v: &mut [T], compare: &mut F) -> bool
     where F: FnMut(&T, &T) -> Ordering
 {
     // Holds a value, but never drops it.
-    #[allow(unions_with_drop_fields)]
-    union NoDrop<T> {
-        value: T
+    struct NoDrop<T> {
+        value: Option<T>,
+    }
+
+    impl<T> Drop for NoDrop<T> {
+        fn drop(&mut self) {
+            mem::forget(self.value.take());
+        }
     }
 
     // When dropped, copies from `src` into `dest`.
@@ -84,7 +84,7 @@ fn insert_head<T, F>(v: &mut [T], compare: &mut F) -> bool
             //    performance than with the 2nd method.
             //
             // All methods were benchmarked, and the 3rd showed best results. So we chose that one.
-            let mut tmp = NoDrop { value: ptr::read(&v[0]) };
+            let mut tmp = NoDrop { value: Some(ptr::read(&v[0])) };
 
             // Intermediate state of the insertion process is always tracked by `hole`, which
             // serves two purposes:
@@ -97,13 +97,13 @@ fn insert_head<T, F>(v: &mut [T], compare: &mut F) -> bool
             // fill the hole in `v` with `tmp`, thus ensuring that `v` still holds every object it
             // initially held exactly once.
             let mut hole = InsertionHole {
-                src: &mut tmp.value,
+                src: tmp.value.as_mut().unwrap(),
                 dest: &mut v[1],
             };
             ptr::copy_nonoverlapping(&v[1], &mut v[0], 1);
 
             for i in 2..v.len() {
-                if compare(&tmp.value, &v[i]) != Greater {
+                if compare(tmp.value.as_ref().unwrap(), &v[i]) != Greater {
                     break;
                 }
                 ptr::copy_nonoverlapping(&v[i], &mut v[i - 1], 1);
@@ -473,7 +473,7 @@ fn quicksort<T, F>(v: &mut [T], compare: &mut F, pred: Option<&T>, mut limit: us
 {
     // If `v` has length up to `insertion_len`, simply switch to insertion sort because it is going
     // to perform better than quicksort. For bigger types `T`, the threshold is smaller.
-    let max_insertion = if size_of::<T>() <= 2 * size_of::<usize>() { 32 } else { 16 };
+    let max_insertion = if mem::size_of::<T>() <= 2 * mem::size_of::<usize>() { 32 } else { 16 };
 
     let len = v.len();
 
@@ -593,7 +593,7 @@ pub fn sort_by<T, F>(v: &mut [T], mut compare: F)
     where F: FnMut(&T, &T) -> Ordering
 {
     // Sorting has no meaningful behavior on zero-sized types.
-    if size_of::<T>() == 0 {
+    if mem::size_of::<T>() == 0 {
         return;
     }
 
@@ -605,193 +605,4 @@ pub fn sort_by<T, F>(v: &mut [T], mut compare: F)
     let limit = 64 - len.leading_zeros() as usize + 1;
 
     quicksort(v, &mut compare, None, limit);
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-    use test::Bencher;
-    use test;
-    use rand::{thread_rng, Rng};
-    use std::mem;
-
-    // TODO: Set up Travis
-    // TODO: Ensure #![no_std] compatibility
-    // TODO: clean up imports
-    // TODO: factor out into more modules
-    // TODO: more correctness tests
-    // TODO: a test with totally random comparison function
-
-    #[test]
-    fn test() {
-        let mut rng = thread_rng();
-        for i in 0..1000 {
-            let len = rng.gen::<usize>() % 1000 + 1;
-            let limit = rng.gen::<u64>() % 1000 + 1;
-
-            let mut a = rng.gen_iter::<u64>()
-                .map(|x| x % limit)
-                .take(len)
-                .collect::<Vec<_>>();
-
-            let mut b = a.clone();
-
-            a.sort();
-            sort(&mut b);
-
-            assert_eq!(a, b);
-        }
-    }
-
-    fn gen_ascending(len: usize) -> Vec<u64> {
-        (0..len as u64).collect()
-    }
-
-    fn gen_descending(len: usize) -> Vec<u64> {
-        (0..len as u64).rev().collect()
-    }
-
-    fn gen_random(len: usize) -> Vec<u64> {
-        let mut rng = thread_rng();
-        rng.gen_iter::<u64>().take(len).collect()
-    }
-
-    fn gen_mostly_ascending(len: usize) -> Vec<u64> {
-        let mut rng = thread_rng();
-        let mut v = gen_ascending(len);
-        for _ in (0usize..).take_while(|x| x * x <= len) {
-            let x = rng.gen::<usize>() % len;
-            let y = rng.gen::<usize>() % len;
-            v.swap(x, y);
-        }
-        v
-    }
-
-    fn gen_mostly_descending(len: usize) -> Vec<u64> {
-        let mut rng = thread_rng();
-        let mut v = gen_descending(len);
-        for _ in (0usize..).take_while(|x| x * x <= len) {
-            let x = rng.gen::<usize>() % len;
-            let y = rng.gen::<usize>() % len;
-            v.swap(x, y);
-        }
-        v
-    }
-
-    fn gen_big_random(len: usize) -> Vec<[u64; 16]> {
-        let mut rng = thread_rng();
-        rng.gen_iter().map(|x| [x; 16]).take(len).collect()
-    }
-
-    fn gen_big_ascending(len: usize) -> Vec<[u64; 16]> {
-        (0..len as u64).map(|x| [x; 16]).take(len).collect()
-    }
-
-    fn gen_big_descending(len: usize) -> Vec<[u64; 16]> {
-        (0..len as u64).rev().map(|x| [x; 16]).take(len).collect()
-    }
-
-    macro_rules! sort_bench {
-        ($name:ident, $gen:expr, $len:expr) => {
-            #[bench]
-            fn $name(b: &mut Bencher) {
-                b.iter(|| $gen($len).sort());
-                b.bytes = $len * mem::size_of_val(&$gen(1)[0]) as u64;
-            }
-        }
-    }
-
-    sort_bench!(sort_small_random, gen_random, 10);
-    sort_bench!(sort_small_ascending, gen_ascending, 10);
-    sort_bench!(sort_small_descending, gen_descending, 10);
-
-    sort_bench!(sort_small_big_random, gen_big_random, 10);
-    sort_bench!(sort_small_big_ascending, gen_big_ascending, 10);
-    sort_bench!(sort_small_big_descending, gen_big_descending, 10);
-
-    sort_bench!(sort_medium_random, gen_random, 100);
-    sort_bench!(sort_medium_ascending, gen_ascending, 100);
-    sort_bench!(sort_medium_descending, gen_descending, 100);
-
-    sort_bench!(sort_large_random, gen_random, 10000);
-    sort_bench!(sort_large_ascending, gen_ascending, 10000);
-    sort_bench!(sort_large_descending, gen_descending, 10000);
-    sort_bench!(sort_large_mostly_ascending, gen_mostly_ascending, 10000);
-    sort_bench!(sort_large_mostly_descending, gen_mostly_descending, 10000);
-
-    sort_bench!(sort_large_big_random, gen_big_random, 10000);
-    sort_bench!(sort_large_big_ascending, gen_big_ascending, 10000);
-    sort_bench!(sort_large_big_descending, gen_big_descending, 10000);
-
-    #[bench]
-    fn sort_large_random_expensive(b: &mut Bencher) {
-        let len = 10000;
-        b.iter(|| {
-            let mut count = 0;
-            let cmp = move |a: &u64, b: &u64| {
-                count += 1;
-                if count % 1_000_000_000 == 0 {
-                    panic!("should not happen");
-                }
-                (*a as f64).cos().partial_cmp(&(*b as f64).cos()).unwrap()
-            };
-
-            let mut v = gen_random(len);
-            v.sort_by(cmp);
-            test::black_box(count);
-        });
-        b.bytes = len as u64 * mem::size_of::<u64>() as u64;
-    }
-
-    macro_rules! new_sort_bench {
-        ($name:ident, $gen:expr, $len:expr) => {
-            #[bench]
-            fn $name(b: &mut Bencher) {
-                b.iter(|| sort(&mut $gen($len)));
-                b.bytes = $len * mem::size_of_val(&$gen(1)[0]) as u64;
-            }
-        }
-    }
-
-    new_sort_bench!(new_sort_small_random, gen_random, 10);
-    new_sort_bench!(new_sort_small_ascending, gen_ascending, 10);
-    new_sort_bench!(new_sort_small_descending, gen_descending, 10);
-
-    new_sort_bench!(new_sort_small_big_random, gen_big_random, 10);
-    new_sort_bench!(new_sort_small_big_ascending, gen_big_ascending, 10);
-    new_sort_bench!(new_sort_small_big_descending, gen_big_descending, 10);
-
-    new_sort_bench!(new_sort_medium_random, gen_random, 100);
-    new_sort_bench!(new_sort_medium_ascending, gen_ascending, 100);
-    new_sort_bench!(new_sort_medium_descending, gen_descending, 100);
-
-    new_sort_bench!(new_sort_large_random, gen_random, 10000);
-    new_sort_bench!(new_sort_large_ascending, gen_ascending, 10000);
-    new_sort_bench!(new_sort_large_descending, gen_descending, 10000);
-    new_sort_bench!(new_sort_large_mostly_ascending, gen_mostly_ascending, 10000);
-    new_sort_bench!(new_sort_large_mostly_descending, gen_mostly_descending, 10000);
-
-    new_sort_bench!(new_sort_large_big_random, gen_big_random, 10000);
-    new_sort_bench!(new_sort_large_big_ascending, gen_big_ascending, 10000);
-    new_sort_bench!(new_sort_large_big_descending, gen_big_descending, 10000);
-
-    #[bench]
-    fn new_sort_large_random_expensive(b: &mut Bencher) {
-        let len = 10000;
-        b.iter(|| {
-            let mut count = 0;
-            let mut cmp = move |a: &u64, b: &u64| {
-                count += 1;
-                if count % 1_000_000_000 == 0 {
-                    panic!("should not happen");
-                }
-                (*a as f64).cos().partial_cmp(&(*b as f64).cos()).unwrap()
-            };
-
-            let mut v = gen_random(len);
-            sort_by(&mut v, &mut cmp);
-            test::black_box(count);
-        });
-        b.bytes = len as u64 * mem::size_of::<u64>() as u64;
-    }
 }

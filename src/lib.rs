@@ -1,8 +1,8 @@
 //! Pattern-defeating quicksort.
 //!
-//! This sort is significantly faster than the standard sort in Rust. For example, it sorts random
-//! arrays of integers approximately 40% faster. The key drawback is that it is an unstable sort
-//! (i.e. may reorder equal elements).
+//! This sort is significantly faster than the standard sort in Rust. In particular, it sorts
+//! random arrays of integers approximately 40% faster. The key drawback is that it is an unstable
+//! sort (i.e. may reorder equal elements). However, in most cases stability doesn't matter anyway.
 //!
 //! The algorithm was designed by Orson Peters and first published at:
 //! https://github.com/orlp/pdqsort
@@ -16,11 +16,11 @@
 //!
 //! - Best-case running time is `O(n)`.
 //! - Worst-case running time is `O(n log n)`.
-//! - Unstable (i.e. may reorder equal elements).
+//! - Unstable, i.e. may reorder equal elements.
 //! - Does not allocate additional memory.
 //! - Compatible with `#![no_std]`.
 //!
-//! # Example
+//! # Examples
 //!
 //! ```
 //! extern crate pdqsort;

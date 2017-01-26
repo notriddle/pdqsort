@@ -17,7 +17,7 @@ The algorithm was designed by Orson Peters and first published at: https://githu
 * Worst-case running time is `O(n log n)`.
 * Unstable, i.e. may reorder equal elements.
 * Does not allocate additional memory.
-* Compatible with `#![no_std]`.
+* Uses `#![no_std]`.
 
 #### Examples
 

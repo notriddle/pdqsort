@@ -5,8 +5,8 @@ extern crate rand;
 extern crate test;
 
 use rand::{Rng, thread_rng};
-use test::Bencher;
 use std::mem;
+use test::Bencher;
 
 fn gen_ascending(len: usize) -> Vec<u64> {
     (0..len as u64).collect()
@@ -60,7 +60,7 @@ macro_rules! sort_bench {
     ($name:ident, $gen:expr, $len:expr) => {
         #[bench]
         fn $name(b: &mut Bencher) {
-            b.iter(|| $gen($len).sort());
+            b.iter(|| pdqsort::sort(&mut $gen($len)));
             b.bytes = $len * mem::size_of_val(&$gen(1)[0]) as u64;
         }
     }
@@ -90,58 +90,6 @@ sort_bench!(sort_large_big_descending, gen_big_descending, 10000);
 
 #[bench]
 fn sort_large_random_expensive(b: &mut Bencher) {
-    let len = 10000;
-    b.iter(|| {
-        let mut count = 0;
-        let cmp = move |a: &u64, b: &u64| {
-            count += 1;
-            if count % 1_000_000_000 == 0 {
-                panic!("should not happen");
-            }
-            (*a as f64).cos().partial_cmp(&(*b as f64).cos()).unwrap()
-        };
-
-        let mut v = gen_random(len);
-        v.sort_by(cmp);
-        test::black_box(count);
-    });
-    b.bytes = len as u64 * mem::size_of::<u64>() as u64;
-}
-
-macro_rules! new_sort_bench {
-    ($name:ident, $gen:expr, $len:expr) => {
-        #[bench]
-        fn $name(b: &mut Bencher) {
-            b.iter(|| pdqsort::sort(&mut $gen($len)));
-            b.bytes = $len * mem::size_of_val(&$gen(1)[0]) as u64;
-        }
-    }
-}
-
-new_sort_bench!(new_sort_small_random, gen_random, 10);
-new_sort_bench!(new_sort_small_ascending, gen_ascending, 10);
-new_sort_bench!(new_sort_small_descending, gen_descending, 10);
-
-new_sort_bench!(new_sort_small_big_random, gen_big_random, 10);
-new_sort_bench!(new_sort_small_big_ascending, gen_big_ascending, 10);
-new_sort_bench!(new_sort_small_big_descending, gen_big_descending, 10);
-
-new_sort_bench!(new_sort_medium_random, gen_random, 100);
-new_sort_bench!(new_sort_medium_ascending, gen_ascending, 100);
-new_sort_bench!(new_sort_medium_descending, gen_descending, 100);
-
-new_sort_bench!(new_sort_large_random, gen_random, 10000);
-new_sort_bench!(new_sort_large_ascending, gen_ascending, 10000);
-new_sort_bench!(new_sort_large_descending, gen_descending, 10000);
-new_sort_bench!(new_sort_large_mostly_ascending, gen_mostly_ascending, 10000);
-new_sort_bench!(new_sort_large_mostly_descending, gen_mostly_descending, 10000);
-
-new_sort_bench!(new_sort_large_big_random, gen_big_random, 10000);
-new_sort_bench!(new_sort_large_big_ascending, gen_big_ascending, 10000);
-new_sort_bench!(new_sort_large_big_descending, gen_big_descending, 10000);
-
-#[bench]
-fn new_sort_large_random_expensive(b: &mut Bencher) {
     let len = 10000;
     b.iter(|| {
         let mut count = 0;

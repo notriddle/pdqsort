@@ -1,31 +1,44 @@
 extern crate pdqsort;
 extern crate rand;
 
+use std::cmp::Ordering::{Greater, Less};
 use rand::{Rng, thread_rng};
 
-// TODO: Set up Travis
-// TODO: Ensure #![no_std] compatibility
-// TODO: Optimize insertion sort
-// TODO: more correctness tests
-// TODO: a test with totally random comparison function
+#[test]
+fn stress_correctness() {
+    let mut rng = thread_rng();
+    for n in 0..16 {
+        for l in 0..16 {
+            let mut a = rng.gen_iter::<u64>()
+                .map(|x| x % (1 << l))
+                .take((1 << n))
+                .collect::<Vec<_>>();
+
+            let mut b = a.clone();
+
+            a.sort();
+            pdqsort::sort(&mut b);
+
+            assert_eq!(a, b);
+        }
+    }
+}
 
 #[test]
-fn test_correctness() {
+fn crazy_compare() {
     let mut rng = thread_rng();
-    for _ in 0..1000 {
-        let len = rng.gen::<usize>() % 1000 + 1;
-        let limit = rng.gen::<u64>() % 1000 + 1;
 
-        let mut a = rng.gen_iter::<u64>()
-            .map(|x| x % limit)
-            .take(len)
-            .collect::<Vec<_>>();
+    let mut v = rng.gen_iter::<u64>()
+        .map(|x| x % 1000)
+        .take(100_000)
+        .collect::<Vec<_>>();
 
-        let mut b = a.clone();
-
-        a.sort();
-        pdqsort::sort(&mut b);
-
-        assert_eq!(a, b);
-    }
+    // Even though comparison is non-sensical, sorting must not panic.
+    pdqsort::sort_by(&mut v, |_, _| {
+        if rng.gen::<bool>() {
+            Less
+        } else {
+            Greater
+        }
+    });
 }

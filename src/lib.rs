@@ -30,10 +30,12 @@
 //! assert!(v == [-5, -3, 1, 2, 4]);
 //! ```
 
-use std::cmp::Ordering::{self, Equal, Greater, Less};
-use std::cmp;
-use std::mem;
-use std::ptr;
+#![no_std]
+
+use core::cmp::Ordering::{self, Equal, Greater, Less};
+use core::cmp;
+use core::mem;
+use core::ptr;
 
 /// Inserts `v[0]` into pre-sorted sequence `v[1..]` so that whole `v[..]` becomes sorted, and
 /// returns `true` if the sequence was modified.
@@ -473,7 +475,11 @@ fn quicksort<T, F>(v: &mut [T], compare: &mut F, pred: Option<&T>, mut limit: us
 {
     // If `v` has length up to `insertion_len`, simply switch to insertion sort because it is going
     // to perform better than quicksort. For bigger types `T`, the threshold is smaller.
-    let max_insertion = if mem::size_of::<T>() <= 2 * mem::size_of::<usize>() { 32 } else { 16 };
+    let max_insertion = if mem::size_of::<T>() <= 2 * mem::size_of::<usize>() {
+        32
+    } else {
+        16
+    };
 
     let len = v.len();
 

@@ -2,6 +2,16 @@
 name = "pdqsort"
 version = "0.1.0"
 authors = ["Stjepan Glavina <stjepang@gmail.com>"]
+description = "Pattern-defeating quicksort"
+repository = "https://github.com/stjepang/pdqsort"
+documentation = "https://docs.rs/pdqsort"
+readme = "README.md"
+license = "Apache-2.0/MIT"
+keywords = ["sort", "sorting", "no_std", "quicksort", "introsort"]
+categories = ["algorithms"]
 
-[dependencies]
+[badges]
+travis-ci = { repository = "stjepang/pdqsort" }
+
+[dev-dependencies]
 rand = "0.3"

@@ -18,7 +18,7 @@
 //! - Worst-case running time is `O(n log n)`.
 //! - Unstable, i.e. may reorder equal elements.
 //! - Does not allocate additional memory.
-//! - Compatible with `#![no_std]`.
+//! - Uses `#![no_std]`.
 //!
 //! # Examples
 //!
@@ -618,4 +618,86 @@ pub fn sort_by<T, F>(v: &mut [T], mut compare: F)
     let limit = 64 - len.leading_zeros() as usize + 1;
 
     quicksort(v, &mut compare, None, limit);
+}
+
+#[cfg(test)]
+mod tests {
+    extern crate std;
+    extern crate rand;
+
+    use self::rand::{Rng, thread_rng};
+    use std::cmp::Ordering::{Greater, Less};
+    use std::prelude::*;
+    use super::*;
+
+    #[test]
+    fn test_sort_zero_sized_type() {
+        // Should not panic.
+        [(); 10].sort();
+        [(); 100].sort();
+    }
+
+    #[test]
+    fn test_sort() {
+        for len in (2..25).chain(500..510) {
+            for _ in 0..100 {
+                let mut v: Vec<_> = thread_rng().gen_iter::<i32>().take(len).collect();
+                let mut v1 = v.clone();
+
+                sort(&mut v);
+                assert!(v.windows(2).all(|w| w[0] <= w[1]));
+
+                v1.sort_by(|a, b| a.cmp(b));
+                assert!(v1.windows(2).all(|w| w[0] <= w[1]));
+
+                v1.sort_by(|a, b| b.cmp(a));
+                assert!(v1.windows(2).all(|w| w[0] >= w[1]));
+            }
+        }
+
+        let mut v = [0xDEADBEEFu64];
+        sort(&mut v);
+        assert!(v == [0xDEADBEEF]);
+    }
+
+    #[test]
+    fn stress_test() {
+        let mut rng = thread_rng();
+        for n in 0..16 {
+            for l in 0..16 {
+                let mut a = rng.gen_iter::<u64>()
+                    .map(|x| x % (1 << l))
+                    .take((1 << n))
+                    .collect::<Vec<_>>();
+                let mut b = a.clone();
+                let mut c = a.clone();
+
+                a.sort();
+                sort(&mut b);
+                heapsort(&mut c, |a, b| a.cmp(b));
+
+                assert_eq!(a, b);
+                assert_eq!(a, c);
+            }
+        }
+    }
+
+    #[test]
+    fn test_crazy_compare() {
+        let mut rng = thread_rng();
+
+        let mut v = rng.gen_iter::<u64>()
+            .map(|x| x % 1000)
+            .take(100_000)
+            .collect::<Vec<_>>();
+
+        // Even though comparison is non-sensical, sorting must not panic.
+        sort_by(&mut v, |_, _| {
+            if rng.gen::<bool>() {
+                Less
+            } else {
+                Greater
+            }
+        });
+    }
 }

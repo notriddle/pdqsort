@@ -434,20 +434,21 @@ fn partition_equal<T, F>(v: &mut [T], pivot: usize, is_less: &mut F) -> usize
 fn break_patterns<T>(v: &mut [T]) {
     let len = v.len();
 
-    if len >= 8 {
-        let mut shuffle_near = |pos: usize| {
-            // Choose a pseudorandom index.
-            let other = (pos ^ pos.wrapping_mul(3137)) % (len - 2) + 1;
+    if len >= 16 {
+        let pos = len / 2;
 
-            // Swap neighbourhoods of `pos` and `other`.
-            for i in 0..3 {
-                v.swap(pos - 1 + i, other - 1 + i);
-            }
-        };
+        // Choose a pseudorandom index.
+        let mut other = len;
+        other ^= other << 13;
+        other ^= other >> 17;
+        other ^= other << 5;
+        other = cmp::max(other & (len >> 1), other & (len >> 2));
+        other += (len - other) / 2;
 
-        shuffle_near(len / 4 * 1);
-        shuffle_near(len / 4 * 2);
-        shuffle_near(len / 4 * 3);
+        // Swap neighbourhoods of `pos` and `other`.
+        for i in 0..3 {
+            v.swap(pos - 1 + i, other - 1 + i);
+        }
     }
 }
 

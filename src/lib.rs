@@ -283,7 +283,7 @@ fn partition_in_blocks<T, F>(v: &mut [T], pivot: &T, is_less: &mut F) -> usize
             }
         }
 
-        // Number of displaced elements to swap between the left and right side.
+        // Number of out-of-order elements to swap between the left and right side.
         let count = cmp::min(width(start_l, end_l), width(start_r, end_r));
 
         if count > 0 {
@@ -371,7 +371,7 @@ fn partition<T, F>(v: &mut [T], pivot: usize, is_less: &mut F) -> (usize, bool)
         };
         let pivot = write_on_drop.value.as_ref().unwrap();
 
-        // Find the first pair of displaced elements.
+        // Find the first pair of out-of-order elements.
         let mut l = 0;
         let mut r = v.len();
         unsafe {

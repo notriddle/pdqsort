@@ -442,7 +442,7 @@ fn break_patterns<T>(v: &mut [T]) {
 
         let mask = (len / 4).next_power_of_two() - 1;
         let rnd = rnd as usize & mask;
-        debug_assert!(0 <= rnd && rnd < len / 2);
+        debug_assert!(rnd < len / 2);
 
         let a = len / 4 * 2;
         let b = len / 4 + rnd;

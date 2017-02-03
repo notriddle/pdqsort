@@ -434,20 +434,22 @@ fn partition_equal<T, F>(v: &mut [T], pivot: usize, is_less: &mut F) -> usize
 fn break_patterns<T>(v: &mut [T]) {
     let len = v.len();
 
-    if len >= 16 {
-        let pos = len / 2;
+    if len >= 8 {
+        let mut rnd = len as u32;
+        rnd ^= rnd << 13;
+        rnd ^= rnd >> 17;
+        rnd ^= rnd << 5;
 
-        // Choose a pseudorandom index.
-        let mut other = len;
-        other ^= other << 13;
-        other ^= other >> 17;
-        other ^= other << 5;
-        other = cmp::max(other & (len >> 1), other & (len >> 2));
-        other += (len - other) / 2;
+        let mask = (len / 4).next_power_of_two() - 1;
+        let rnd = rnd as usize & mask;
+        debug_assert!(0 <= rnd && rnd < len / 2);
 
-        // Swap neighbourhoods of `pos` and `other`.
+        let a = len / 4 * 2;
+        let b = len / 4 + rnd;
+
+        // Swap neighbourhoods of `a` and `b`.
         for i in 0..3 {
-            v.swap(pos - 1 + i, other - 1 + i);
+            v.swap(a - 1 + i, b - 1 + i);
         }
     }
 }

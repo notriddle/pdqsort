@@ -1,16 +1,10 @@
 //! Pattern-defeating quicksort.
 //!
 //! This sort is significantly faster than the standard sort in Rust. In particular, it sorts
-//! random arrays of integers approximately 40% faster. The key drawback is that it is an unstable
+//! random arrays of integers approximately 45% faster. The key drawback is that it is an unstable
 //! sort (i.e. may reorder equal elements). However, in most cases stability doesn't matter anyway.
 //!
-//! The algorithm was designed by Orson Peters and first published at:
-//! https://github.com/orlp/pdqsort
-//!
-//! Quoting it's designer: "Pattern-defeating quicksort (pdqsort) is a novel sorting algorithm
-//! that combines the fast average case of randomized quicksort with the fast worst case of
-//! heapsort, while achieving linear time on inputs with certain patterns. pdqsort is an extension
-//! and improvement of David Musser's introsort."
+//! The algorithm is based on pdqsort by Orson Peters, published at: https://github.com/orlp/pdqsort
 //!
 //! # Properties
 //!

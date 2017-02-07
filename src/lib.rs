@@ -37,7 +37,7 @@ use core::cmp::{self, Ordering};
 use core::mem;
 use core::ptr;
 
-/// On drop, takes the value out of `Option` and writes it into `dest`.
+/// When dropped, takes the value out of `Option` and writes it into `dest`.
 ///
 /// This allows us to safely read the pivot into a stack-allocated variable for efficiency, and
 /// write it back into the slice after partitioning. This way we ensure that the write happens
@@ -188,7 +188,7 @@ fn heapsort<T, F>(v: &mut [T], is_less: &mut F)
 fn partition_in_blocks<T, F>(v: &mut [T], pivot: &T, is_less: &mut F) -> usize
     where F: FnMut(&T, &T) -> bool
 {
-    const BLOCK: usize = 64;
+    const BLOCK: usize = 128;
 
     // State on the left side.
     let mut l = v.as_mut_ptr();

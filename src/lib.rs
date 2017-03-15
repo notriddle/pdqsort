@@ -100,15 +100,15 @@ fn insertion_sort<T, F>(v: &mut [T], is_less: &mut F)
                 };
                 ptr::copy_nonoverlapping(v.get_unchecked(i - 1), v.get_unchecked_mut(i), 1);
 
-                for j in (0..i-1).rev() {
-                    if !is_less(&tmp.value.as_ref().unwrap(), v.get_unchecked(j)) {
+                for h in (0..i-1).rev() {
+                    if !is_less(&tmp.value.as_ref().unwrap(), v.get_unchecked(h)) {
                         break;
                     }
-                    ptr::copy_nonoverlapping(v.get_unchecked(j), v.get_unchecked_mut(j + 1), 1);
-                    hole.dest = v.get_unchecked_mut(j);
+                    ptr::copy_nonoverlapping(v.get_unchecked(h), v.get_unchecked_mut(h + 1), 1);
+                    hole.dest = v.get_unchecked_mut(h);
                 }
+                // `hole` gets dropped and thus copies `tmp` into the remaining hole in `v`.
             }
-            // `hole` gets dropped and thus copies `tmp` into the remaining hole in `v`.
         }
     }
 
@@ -421,17 +421,26 @@ fn break_patterns<T>(v: &mut [T]) {
     let len = v.len();
 
     if len >= 8 {
-        let mut rnd = len as u32;
-        rnd ^= rnd << 13;
-        rnd ^= rnd >> 17;
-        rnd ^= rnd << 5;
+        // A random number will be taken modulo this one. The modulus is a power of two so that we
+        // can simply take bitwise "and", thus avoiding costly CPU operations.
+        let modulus = (len / 4).next_power_of_two();
+        debug_assert!(modulus >= 1 && modulus <= len / 2);
 
-        let mask = (len / 4).next_power_of_two() - 1;
-        let rnd = rnd as usize & mask;
-        debug_assert!(rnd < len / 2);
+        // Pseudorandom number generation from the "Xorshift RNGs" paper by George Marsaglia.
+        let mut random = len;
+        random ^= random << 13;
+        random ^= random >> 17;
+        random ^= random << 5;
+        random &= modulus - 1;
+        debug_assert!(random < len / 2);
 
+        // The first index.
         let a = len / 4 * 2;
-        let b = len / 4 + rnd;
+        debug_assert!(a >= 1 && a < len - 2);
+
+        // The second index.
+        let b = len / 4 + random;
+        debug_assert!(b >= 1 && b < len - 2);
 
         // Swap neighbourhoods of `a` and `b`.
         for i in 0..3 {
@@ -442,20 +451,29 @@ fn break_patterns<T>(v: &mut [T]) {
 
 /// Chooses a pivot in `v` and returns it's index.
 ///
-/// Elements of `v` might be shuffled in the process.
+/// Elements in `v` might be reordered in the process.
 fn choose_pivot<T, F>(v: &mut [T], is_less: &mut F) -> usize
     where F: FnMut(&T, &T) -> bool
 {
+    // Minimal length to choose the median-of-medians method.
+    // Shorter slices use the simple median-of-three method.
     const SHORTEST_MEDIAN_OF_MEDIANS: usize = 90;
+
+    // Maximal number of swaps that can be performed in this function.
     const MAX_SWAPS: usize = 4 * 3;
 
     let len = v.len();
+
+    // Three indices near which we are going to choose a pivot.
     let mut a = len / 4 * 1;
     let mut b = len / 4 * 2;
     let mut c = len / 4 * 3;
+
+    // Counts the total number of swaps we are about to perform while sorting indices.
     let mut swaps = 0;
 
     if len >= 8 {
+        // Swaps indices so that `v[a] <= v[b]`.
         let mut sort2 = |a: &mut usize, b: &mut usize| unsafe {
             if is_less(v.get_unchecked(*b), v.get_unchecked(*a)) {
                 ptr::swap(a, b);
@@ -463,6 +481,7 @@ fn choose_pivot<T, F>(v: &mut [T], is_less: &mut F) -> usize
             }
         };
 
+        // Swaps indices so that `v[a] <= v[b] <= v[c]`.
         let mut sort3 = |a: &mut usize, b: &mut usize, c: &mut usize| {
             sort2(a, b);
             sort2(b, c);
@@ -470,21 +489,27 @@ fn choose_pivot<T, F>(v: &mut [T], is_less: &mut F) -> usize
         };
 
         if len >= SHORTEST_MEDIAN_OF_MEDIANS {
+            // Finds the median of `v[a - 1], v[a], v[a + 1]` and stores the index into `a`.
             let mut sort_adjacent = |a: &mut usize| {
                 let tmp = *a;
                 sort3(&mut (tmp - 1), a, &mut (tmp + 1));
             };
 
+            // Find medians in the neighborhoods of `a`, `b`, and `c`.
             sort_adjacent(&mut a);
             sort_adjacent(&mut b);
             sort_adjacent(&mut c);
         }
+
+        // Find the median among `a`, `b`, and `c`.
         sort3(&mut a, &mut b, &mut c);
     }
 
     if swaps < MAX_SWAPS {
         b
     } else {
+        // The maximal number of swaps was performed. Chances are the slice is descending or mostly
+        // descending, so reversing will probably help sort it faster.
         v.reverse();
         len - 1 - b
     }
@@ -512,11 +537,15 @@ fn recurse<'a, T, F>(mut v: &'a mut [T], is_less: &mut F, mut pred: Option<&'a T
 
     loop {
         let len = v.len();
+
+        // Very short slices get sorted using insertion sort.
         if len <= max_insertion {
             insertion_sort(v, is_less);
             return;
         }
 
+        // If too many bad pivot choices were made, simply fall back to heapsort in order to
+        // guarantee `O(n log n)` worst-case.
         if limit == 0 {
             heapsort(v, is_less);
             return;
@@ -537,6 +566,8 @@ fn recurse<'a, T, F>(mut v: &'a mut [T], is_less: &mut F, mut pred: Option<&'a T
         if let Some(p) = pred {
             if !is_less(p, &v[pivot]) {
                 let mid = partition_equal(v, pivot, is_less);
+
+                // Continue sorting elements greater than the pivot.
                 v = &mut {v}[mid..];
                 continue;
             }
@@ -551,17 +582,20 @@ fn recurse<'a, T, F>(mut v: &'a mut [T], is_less: &mut F, mut pred: Option<&'a T
             return;
         }
 
+        // Split the slice into `left`, `pivot`, and `right`.
         let (left, right) = {v}.split_at_mut(mid);
         let (pivot, right) = right.split_at_mut(1);
+        let pivot = &pivot[0];
 
-        // Recurse into the smaller side only, in order to minimize the total number of recursive
-        // calls and consume less stack space.
+        // Recurse into the shorter side only in order to minimize the total number of recursive
+        // calls and consume less stack space. Then just continue with the longer side (this is
+        // akin to tail recursion).
         if left.len() < right.len() {
             recurse(left, is_less, pred, limit);
             v = right;
-            pred = Some(&pivot[0]);
+            pred = Some(pivot);
         } else {
-            recurse(right, is_less, Some(&pivot[0]), limit);
+            recurse(right, is_less, Some(pivot), limit);
             v = left;
         }
     }
@@ -576,7 +610,9 @@ fn quicksort<T, F>(v: &mut [T], mut is_less: F)
         return;
     }
 
-    let limit = 64 - (v.len() as u64).leading_zeros() as usize + 1;
+    // Limit the number of imbalanced partitions to `floor(log2(len)) + 2`.
+    let limit = mem::size_of::<usize>() * 8 - v.len().leading_zeros() as usize + 1;
+
     recurse(v, &mut is_less, None, limit);
 }
 
@@ -595,7 +631,6 @@ fn quicksort<T, F>(v: &mut [T], mut is_less: F)
 /// pdqsort::sort(&mut v);
 /// assert!(v == [-5, -3, 1, 2, 4]);
 /// ```
-#[inline]
 pub fn sort<T>(v: &mut [T])
     where T: Ord
 {
@@ -617,7 +652,6 @@ pub fn sort<T>(v: &mut [T])
 /// pdqsort::sort_by_key(&mut v, |k| k.abs());
 /// assert!(v == [1, 2, -3, 4, -5]);
 /// ```
-#[inline]
 pub fn sort_by_key<T, B, F>(v: &mut [T], mut f: F)
     where F: FnMut(&T) -> B,
           B: Ord
@@ -644,7 +678,6 @@ pub fn sort_by_key<T, B, F>(v: &mut [T], mut f: F)
 /// pdqsort::sort_by(&mut v, |a, b| b.cmp(a));
 /// assert!(v == [5, 4, 3, 2, 1]);
 /// ```
-#[inline]
 pub fn sort_by<T, F>(v: &mut [T], mut compare: F)
     where F: FnMut(&T, &T) -> Ordering
 {

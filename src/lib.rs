@@ -1,8 +1,9 @@
-//! Pattern-defeating quicksort.
+//! Pattern-defeating quicksort
 //!
-//! This sort is significantly faster than the standard sort in Rust. In particular, it sorts
-//! random arrays of integers approximately 45% faster. The key drawback is that it is an unstable
-//! sort (i.e. may reorder equal elements). However, in most cases stability doesn't matter anyway.
+//! This sort is in most cases significantly faster than the standard sort in Rust. In particular,
+//! it sorts random arrays of integers approximately 45% faster. The key drawback is that it is an
+//! unstable sort (i.e. may reorder equal elements). However, in most cases stability doesn't
+//! matter anyway.
 //!
 //! The algorithm is based on pdqsort by Orson Peters, published at: https://github.com/orlp/pdqsort
 //!
@@ -179,7 +180,9 @@ fn heapsort<T, F>(v: &mut [T], is_less: &mut F)
 }
 
 /// Partitions `v` into elements smaller than `pivot`, followed by elements greater than or equal
-/// to `pivot`. Returns the number of elements smaller than `pivot`.
+/// to `pivot`.
+///
+/// Returns the number of elements smaller than `pivot`.
 ///
 /// Partitioning is performed block-by-block in order to minimize the cost of branching operations.
 /// This idea is presented in the [BlockQuicksort][pdf] paper.
@@ -188,16 +191,30 @@ fn heapsort<T, F>(v: &mut [T], is_less: &mut F)
 fn partition_in_blocks<T, F>(v: &mut [T], pivot: &T, is_less: &mut F) -> usize
     where F: FnMut(&T, &T) -> bool
 {
+    // Number of elements in a typical block.
     const BLOCK: usize = 128;
 
-    // State on the left side.
+    // The partitioning algorithm repeats the following steps until completion:
+    //
+    // 1. Trace a block from the left side to identify elements greater than or equal to the pivot.
+    // 2. Trace a block from the right side to identify elements less than the pivot.
+    // 3. Exchange the identified elements between the left and right side.
+    //
+    // We keep the following variables for a block of elements:
+    //
+    // 1. `block` - Number of elements in the block.
+    // 2. `start` - Start position in the `offsets` array.
+    // 3. `end` - End position in the `offsets` array.
+    // 4. `offsets - Indices of out-of-order elements within the block.
+
+    // The current block on the left side: `v[l .. l + block_l]`.
     let mut l = v.as_mut_ptr();
     let mut block_l = BLOCK;
     let mut start_l = ptr::null_mut();
     let mut end_l = ptr::null_mut();
     let mut offsets_l: [u8; BLOCK] = unsafe { mem::uninitialized() };
 
-    // State on the right side.
+    // The current block on the right side: `v[r - block_r .. r]`.
     let mut r = unsafe { l.offset(v.len() as isize) };
     let mut block_r = BLOCK;
     let mut start_r = ptr::null_mut();
@@ -210,11 +227,6 @@ fn partition_in_blocks<T, F>(v: &mut [T], pivot: &T, is_less: &mut F) -> usize
         (r as usize - l as usize) / mem::size_of::<T>()
     }
 
-    // Roughly speaking, the idea is to repeat the following steps until completion:
-    //
-    // 1. Trace a block from the left side to identify elements greater than or equal to the pivot.
-    // 2. Trace a block from the right side to identify elements less than the pivot.
-    // 3. Exchange the identified elements between the left and right side.
     loop {
         // We are done with partitioning block-by-block when `l` and `r` get very close. Then we do
         // some patch-up work in order to partition the remaining elements in between.
@@ -222,7 +234,10 @@ fn partition_in_blocks<T, F>(v: &mut [T], pivot: &T, is_less: &mut F) -> usize
 
         if is_done {
             // Number of remaining elements (still not compared to the pivot).
-            let rem = width(l, r) - (start_l < end_l || start_r < end_r) as usize * BLOCK;
+            let mut rem = width(l, r);
+            if start_l < end_l || start_r < end_r {
+                rem -= BLOCK;
+            }
 
             // Adjust block sizes so that the left and right block don't overlap, but get perfectly
             // aligned to cover the whole remaining gap.
@@ -234,6 +249,7 @@ fn partition_in_blocks<T, F>(v: &mut [T], pivot: &T, is_less: &mut F) -> usize
                 block_l = rem / 2;
                 block_r = rem - block_l;
             }
+            debug_assert!(block_l <= BLOCK && block_r <= BLOCK);
             debug_assert!(width(l, r) == block_l + block_r);
         }
 
@@ -298,12 +314,12 @@ fn partition_in_blocks<T, F>(v: &mut [T], pivot: &T, is_less: &mut F) -> usize
         }
 
         if start_l == end_l {
-            // The left block is fully exhausted. Shift the left bound forward.
+            // All out-of-order elements in the left block were moved. Move to the next block.
             l = unsafe { l.offset(block_l as isize) };
         }
 
         if start_r == end_r {
-            // The right block is fully exhausted. Shift the right bound backward.
+            // All out-of-order elements in the right block were moved. Move to the previous block.
             r = unsafe { r.offset(-(block_r as isize)) };
         }
 
@@ -312,8 +328,14 @@ fn partition_in_blocks<T, F>(v: &mut [T], pivot: &T, is_less: &mut F) -> usize
         }
     }
 
+    // All that remains now is at most one block (either the left or the right) with out-of-order
+    // elements that need to be moved. Such remaining elements can be simply shifted to the end
+    // within their block.
+
     if start_l < end_l {
-        // Move the remaining to-be-swapped elements to the far right.
+        // The left block remains.
+        // Move it's remaining out-of-order elements to the far right.
+        debug_assert_eq!(width(l, r), block_l);
         while start_l < end_l {
             unsafe {
                 end_l = end_l.offset(-1);
@@ -322,8 +344,10 @@ fn partition_in_blocks<T, F>(v: &mut [T], pivot: &T, is_less: &mut F) -> usize
             }
         }
         width(v.as_mut_ptr(), r)
-    } else {
-        // Move the remaining to-be-swapped elements to the far left.
+    } else if start_r < end_r {
+        // The right block remains.
+        // Move it's remaining out-of-order elements to the far left.
+        debug_assert_eq!(width(l, r), block_r);
         while start_r < end_r {
             unsafe {
                 end_r = end_r.offset(-1);
@@ -332,28 +356,33 @@ fn partition_in_blocks<T, F>(v: &mut [T], pivot: &T, is_less: &mut F) -> usize
             }
         }
         width(v.as_mut_ptr(), l)
+    } else {
+        // Nothing else to do, we're done.
+        width(v.as_mut_ptr(), l)
     }
 }
 
 /// Partitions `v` into elements smaller than `v[pivot]`, followed by elements greater than or
 /// equal to `v[pivot]`.
 ///
-/// Returns two things:
+/// Returns a tuple of:
 ///
 /// 1. Number of elements smaller than `v[pivot]`.
-/// 2. `true` if `v` was already partitioned.
+/// 2. True if `v` was already partitioned.
 fn partition<T, F>(v: &mut [T], pivot: usize, is_less: &mut F) -> (usize, bool)
     where F: FnMut(&T, &T) -> bool
 {
-    v.swap(0, pivot);
-
     let (mid, was_partitioned) = {
+        // Place the pivot at the beginning of slice.
+        v.swap(0, pivot);
         let (pivot, v) = v.split_at_mut(1);
+        let pivot = &mut pivot[0];
 
-        // Read the pivot into a stack-allocated variable for efficiency.
+        // Read the pivot into a stack-allocated variable for efficiency. If a following comparison
+        // operation panics, the pivot will be automatically written back into the slice.
         let write_on_drop = WriteOnDrop {
-            value: unsafe { Some(ptr::read(&pivot[0])) },
-            dest: &mut pivot[0],
+            value: unsafe { Some(ptr::read(pivot)) },
+            dest: pivot,
         };
         let pivot = write_on_drop.value.as_ref().unwrap();
 
@@ -361,57 +390,82 @@ fn partition<T, F>(v: &mut [T], pivot: usize, is_less: &mut F) -> (usize, bool)
         let mut l = 0;
         let mut r = v.len();
         unsafe {
+            // Find the first element greater then or equal to the pivot.
             while l < r && is_less(v.get_unchecked(l), pivot) {
                 l += 1;
             }
+
+            // Find the last element lesser that the pivot.
             while l < r && !is_less(v.get_unchecked(r - 1), pivot) {
                 r -= 1;
             }
         }
 
         (l + partition_in_blocks(&mut v[l..r], pivot, is_less), l >= r)
+
+        // `write_on_drop` goes out of scope and writes the pivot (which is a stack-allocated
+        // variable) back into the slice where it originally was. This step is critical in ensuring
+        // safety!
     };
 
+    // Place the pivot between the two partitions.
     v.swap(0, mid);
+
     (mid, was_partitioned)
 }
 
 /// Partitions `v` into elements equal to `v[pivot]` followed by elements greater than `v[pivot]`.
-/// It is assumed that `v` does not contain elements smaller than `v[pivot]`.
+///
+/// Returns the number of elements equal to the pivot. It is assumed that `v` does not contain
+/// elements smaller than the pivot.
 fn partition_equal<T, F>(v: &mut [T], pivot: usize, is_less: &mut F) -> usize
     where F: FnMut(&T, &T) -> bool
 {
+    // Place the pivot at the beginning of slice.
     v.swap(0, pivot);
     let (pivot, v) = v.split_at_mut(1);
+    let pivot = &mut pivot[0];
 
-    // Read the pivot into a stack-allocated variable for efficiency.
+    // Read the pivot into a stack-allocated variable for efficiency. If a following comparison
+    // operation panics, the pivot will be automatically written back into the slice.
     let write_on_drop = WriteOnDrop {
-        value: unsafe { Some(ptr::read(&pivot[0])) },
-        dest: &mut pivot[0],
+        value: unsafe { Some(ptr::read(pivot)) },
+        dest: pivot,
     };
     let pivot = write_on_drop.value.as_ref().unwrap();
 
+    // Now partition the slice.
     let mut l = 0;
     let mut r = v.len();
     loop {
         unsafe {
+            // Find the first element greater that the pivot.
             while l < r && !is_less(pivot, v.get_unchecked(l)) {
                 l += 1;
             }
+
+            // Find the last element equal to the pivot.
             while l < r && is_less(pivot, v.get_unchecked(r - 1)) {
                 r -= 1;
             }
+
+            // Are we done?
             if l >= r {
                 break;
             }
+
+            // Swap the found pair of out-of-order elements.
             r -= 1;
             ptr::swap(v.get_unchecked_mut(l), v.get_unchecked_mut(r));
             l += 1;
         }
     }
 
-    // Add 1 to also account for the pivot at index 0.
+    // We found `l` elements equal to the pivot. Add 1 to account for the pivot itself.
     l + 1
+
+    // `write_on_drop` goes out of scope and writes the pivot (which is a stack-allocated variable)
+    // back into the slice where it originally was. This step is critical in ensuring safety!
 }
 
 /// Scatters some elements around in an attempt to break patterns that might cause imbalanced

@@ -1,5 +1,7 @@
 use super::sort_by;
 
+pub use core::cmp::{Ordering, PartialEq, PartialOrd};
+
 /// Sorts floating point number.
 /// The ordering used is
 /// | -inf | < 0 | -0 | +0 | > 0 | +inf | NaN |
@@ -47,7 +49,7 @@ pub fn sort<T: Float>(v: &mut [T]) {
     }
 
     // Sort the non-NaN part with efficient comparisons
-    sort_by(&mut v[..rnan + 1], &|x: &T, y: &T|
+    sort_by(&mut v[..rnan + 1], |x: &T, y: &T|
         match x.partial_cmp(y) {
             Some(ord) => ord,
             None      => unsafe { unreachable() }
@@ -57,28 +59,27 @@ pub fn sort<T: Float>(v: &mut [T]) {
     let left = find_first_zero(&v[..rnan + 1]);
 
     // Count zeros of each type and then fill them in in the right order
-    let mut zeros = 0;
-    let mut neg_zeros = 0;
+    let mut zeros = false;
+    let mut neg_zeros = false;
+    let mut right = left;
     for x in v[left..].iter() {
-        if *x != T::zero() {
+        if !x.is_zero() {
             break;
         }
         if x.is_sign_negative() {
-            neg_zeros += 1;
+            neg_zeros = true;
         } else {
-            zeros += 1;
+            zeros = true;
         }
+        right += 1;
     }
-    for x in v[left..].iter_mut() {
-        if neg_zeros > 0 {
-            *x = Float::neg_zero();
-            neg_zeros -= 1;
-        } else if zeros > 0 {
-             *x = T::zero();
-             zeros -= 1;
-        } else {
-            break;
-        }
+    if zeros && neg_zeros {
+        sort_by(&mut v[left..right], |x: &T, y: &T|
+            match (x.is_sign_negative(), y.is_sign_negative()) {
+                (true, false) => Ordering::Less,
+                (false, true) => Ordering::Greater,
+                _ => Ordering::Equal,
+            });
     }
 }
 
@@ -91,14 +92,14 @@ fn find_first_zero<T: Float>(v: &[T]) -> usize {
 
     while left < hi {
         let mid = ((hi - left) / 2) + left;
-        if v[mid] < T::zero() {
+        if v[mid].is_lt_zero() {
             left = mid + 1;
         } else {
             hi = mid;
         }
     }
 
-    while left < v.len() && v[left] < T::zero() {
+    while left < v.len() && v[left].is_lt_zero() {
         left += 1;
     }
     return left;
@@ -109,25 +110,72 @@ fn find_first_zero<T: Float>(v: &[T]) -> usize {
 /// This cannot (safely) use the trait in `num_traits`,
 /// because this sorting algorithm will invoke UB
 /// if `Float::is_nan()` returns false and `PartialOrd::cmp` returns `None`.
-pub unsafe trait Float: PartialOrd + Copy {
-    fn is_nan(self) -> bool;
-    fn zero() -> Self;
-    fn neg_zero() -> Self;
-    fn is_sign_negative(self) -> bool;
+pub unsafe trait Float: PartialOrd {
+    fn is_nan(&self) -> bool;
+    fn is_zero(&self) -> bool;
+    fn is_lt_zero(&self) -> bool;
+    fn is_sign_negative(&self) -> bool;
 }
 
 unsafe impl Float for f32 {
-    fn is_nan(self) -> bool { self != self }
-    fn zero() -> Self { 0.0 }
-    fn neg_zero() -> Self { -0.0 }
-    fn is_sign_negative(self) -> bool { ::core::num::Float::is_sign_negative(self) }
+    fn is_nan(&self) -> bool { self != self }
+    fn is_zero(&self) -> bool { *self == 0.0 }
+    fn is_lt_zero(&self) -> bool { *self < 0.0 }
+    fn is_sign_negative(&self) -> bool { ::core::num::Float::is_sign_negative(*self) }
 }
 
 unsafe impl Float for f64 {
-    fn is_nan(self) -> bool { self != self }
-    fn zero() -> Self { 0.0 }
-    fn neg_zero() -> Self { -0.0 }
-    fn is_sign_negative(self) -> bool { ::core::num::Float::is_sign_negative(self) }
+    fn is_nan(&self) -> bool { self != self }
+    fn is_zero(&self) -> bool { *self == 0.0 }
+    fn is_lt_zero(&self) -> bool { *self < 0.0 }
+    fn is_sign_negative(&self) -> bool { ::core::num::Float::is_sign_negative(*self) }
+}
+
+/// Define a float member to sort by.
+///
+/// # Example
+///
+/// ```
+/// #[macro_use] extern crate pdqsort;
+/// struct Item {
+///     key: f64,
+/// }
+/// pdqsort_float_member!(Item, key);
+/// # fn main() {
+/// let mut v = [ Item{ key: 2.0 }, Item{ key: 1.0 } ];
+/// pdqsort::float::sort(&mut v);
+/// assert!(1.0 == v[0].key);
+/// assert!(2.0 == v[1].key);
+/// # }
+/// ```
+#[macro_export]
+macro_rules! pdqsort_float_member {
+    ($ty:ident, $member:ident) => {
+        impl $crate::float::PartialEq for $ty {
+            fn eq(&self, other: &Self) -> bool {
+                $crate::float::PartialEq::eq(&self.$member, &other.$member)
+            }
+        }
+        impl $crate::float::PartialOrd for $ty {
+            fn partial_cmp(&self, other: &Self) -> Option<$crate::float::Ordering> {
+                $crate::float::PartialOrd::partial_cmp(&self.$member, &other.$member)
+            }
+        }
+        unsafe impl $crate::float::Float for $ty {
+            fn is_nan(&self) -> bool {
+                $crate::float::Float::is_nan(&self.$member)
+            }
+            fn is_zero(&self) -> bool {
+                $crate::float::Float::is_zero(&self.$member)
+            }
+            fn is_lt_zero(&self) -> bool {
+                $crate::float::Float::is_lt_zero(&self.$member)
+            }
+            fn is_sign_negative(&self) -> bool {
+                $crate::float::Float::is_sign_negative(&self.$member)
+            }
+        }
+    }
 }
 
 /// An `unreachable()` intrinsic.

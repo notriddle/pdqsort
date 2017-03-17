@@ -39,6 +39,8 @@ use core::cmp::{self, Ordering};
 use core::mem;
 use core::ptr;
 
+pub mod float;
+
 /// When dropped, takes the value out of `Option` and writes it into `dest`.
 ///
 /// This allows us to safely read the pivot into a stack-allocated variable for efficiency, and

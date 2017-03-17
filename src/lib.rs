@@ -5,7 +5,8 @@
 //! unstable sort (i.e. may reorder equal elements). However, in most cases stability doesn't
 //! matter anyway.
 //!
-//! The algorithm is based on pdqsort by Orson Peters, published at: https://github.com/orlp/pdqsort
+//! The algorithm is based on pattern-defeating quicksort by Orson Peters, published at:
+//! https://github.com/orlp/pdqsort
 //!
 //! # Properties
 //!
@@ -203,8 +204,8 @@ fn partition_in_blocks<T, F>(v: &mut [T], pivot: &T, is_less: &mut F) -> usize
     // We keep the following variables for a block of elements:
     //
     // 1. `block` - Number of elements in the block.
-    // 2. `start` - Start position in the `offsets` array.
-    // 3. `end` - End position in the `offsets` array.
+    // 2. `start` - Start pointer into the `offsets` array.
+    // 3. `end` - End pointer into the `offsets` array.
     // 4. `offsets - Indices of out-of-order elements within the block.
 
     // The current block on the left side: `v[l .. l + block_l]`.
@@ -512,7 +513,6 @@ fn choose_pivot<T, F>(v: &mut [T], is_less: &mut F) -> usize
     // Minimal length to choose the median-of-medians method.
     // Shorter slices use the simple median-of-three method.
     const SHORTEST_MEDIAN_OF_MEDIANS: usize = 90;
-
     // Maximal number of swaps that can be performed in this function.
     const MAX_SWAPS: usize = 4 * 3;
 
@@ -578,13 +578,8 @@ fn choose_pivot<T, F>(v: &mut [T], is_less: &mut F) -> usize
 fn recurse<'a, T, F>(mut v: &'a mut [T], is_less: &mut F, mut pred: Option<&'a T>, mut limit: usize)
     where F: FnMut(&T, &T) -> bool
 {
-    // If `v` has length up to `insertion_len`, simply switch to insertion sort because it is going
-    // to perform better than quicksort. For bigger types `T`, the threshold is smaller.
-    let max_insertion = if mem::size_of::<T>() <= 2 * mem::size_of::<usize>() {
-        32
-    } else {
-        16
-    };
+    // Slices of up to this length get sorted using insertion sort.
+    const MAX_INSERTION: usize = 16;
 
     // This is `true` if the last partitioning was balanced.
     let mut was_balanced = true;
@@ -593,7 +588,7 @@ fn recurse<'a, T, F>(mut v: &'a mut [T], is_less: &mut F, mut pred: Option<&'a T
         let len = v.len();
 
         // Very short slices get sorted using insertion sort.
-        if len <= max_insertion {
+        if len <= MAX_INSERTION {
             insertion_sort(v, is_less);
             return;
         }
@@ -655,7 +650,7 @@ fn recurse<'a, T, F>(mut v: &'a mut [T], is_less: &mut F, mut pred: Option<&'a T
     }
 }
 
-/// Sorts `v` using quicksort.
+/// Sorts `v` using pattern-defeating quicksort, which is `O(n log n)` worst-case.
 fn quicksort<T, F>(v: &mut [T], mut is_less: F)
     where F: FnMut(&T, &T) -> bool
 {
@@ -691,28 +686,6 @@ pub fn sort<T>(v: &mut [T])
     quicksort(v, |a, b| a.lt(b));
 }
 
-/// Sorts a slice using `f` to extract a key to compare elements by.
-///
-/// This sort is in-place, unstable, and `O(n log n)` worst-case.
-///
-/// The implementation is based on Orson Peters' pattern-defeating quicksort.
-///
-/// # Examples
-///
-/// ```
-/// extern crate pdqsort;
-///
-/// let mut v = [-5i32, 4, 1, -3, 2];
-/// pdqsort::sort_by_key(&mut v, |k| k.abs());
-/// assert!(v == [1, 2, -3, 4, -5]);
-/// ```
-pub fn sort_by_key<T, B, F>(v: &mut [T], mut f: F)
-    where F: FnMut(&T) -> B,
-          B: Ord
-{
-    quicksort(v, |a, b| f(a).lt(&f(b)))
-}
-
 /// Sorts a slice using `compare` to compare elements.
 ///
 /// This sort is in-place, unstable, and `O(n log n)` worst-case.
@@ -736,6 +709,28 @@ pub fn sort_by<T, F>(v: &mut [T], mut compare: F)
     where F: FnMut(&T, &T) -> Ordering
 {
     quicksort(v, |a, b| compare(a, b) == Ordering::Less);
+}
+
+/// Sorts a slice using `f` to extract a key to compare elements by.
+///
+/// This sort is in-place, unstable, and `O(n log n)` worst-case.
+///
+/// The implementation is based on Orson Peters' pattern-defeating quicksort.
+///
+/// # Examples
+///
+/// ```
+/// extern crate pdqsort;
+///
+/// let mut v = [-5i32, 4, 1, -3, 2];
+/// pdqsort::sort_by_key(&mut v, |k| k.abs());
+/// assert!(v == [1, 2, -3, 4, -5]);
+/// ```
+pub fn sort_by_key<T, B, F>(v: &mut [T], mut f: F)
+    where F: FnMut(&T) -> B,
+          B: Ord
+{
+    quicksort(v, |a, b| f(a).lt(&f(b)));
 }
 
 #[cfg(test)]
